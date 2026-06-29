@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import gc
 import logging
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -22,6 +23,7 @@ from app.manual_service import ManualValidationError, parse_manual_applications
 from app.models import ApplicationData, LabelResult, Status
 from app.ocr_service import OcrService, OcrUnavailableError, ocr_service
 from app.references import TTB_REFERENCE_GROUPS
+from app.telemetry import RequestTrace
 from app.verification_service import unreadable_fields, verify_application
 
 
@@ -178,21 +180,48 @@ async def _process_upload(
     ocr_executor: ThreadPoolExecutor,
     worker_limit: asyncio.Semaphore,
     batch_bytes: list[int],
+    trace: RequestTrace,
+    image_index: int,
+    image_count: int,
 ) -> LabelResult:
     """Process one image while respecting the request and process OCR limits."""
 
     async with worker_limit:
         started = time.perf_counter()
         file_name = Path(upload.filename or "unnamed-image").name
+        image_context = f"image={image_index}/{image_count} filename={file_name}"
         image_preview_url: str | None = None
+        data: bytes | None = None
+        prepared = None
+        ocr = None
+        extracted = None
+        fields = None
+        trace.info("Processing image %d/%d", image_index, image_count)
+        trace.info("Filename: %s", file_name)
         if application is None:
+            await upload.close()
+            trace.info("No application data matched | %s", image_context)
+            trace.stage(10, "Cleanup", image_context)
+            trace.info("Running gc.collect() | %s", image_context)
+            collected = gc.collect()
+            trace.info("gc.collect() complete | Objects collected: %d | %s", collected, image_context)
+            trace.mark("after_cleanup", image_context)
+            trace.timing("Total image time", started, image_context)
             return _review_result(
                 file_name,
                 "No application row matched this file name. Add an exact file_name entry and try again.",
             )
 
         try:
-            data = await upload.read(config.MAX_IMAGE_BYTES + 1)
+            trace.stage(1, "Loading image", image_context)
+            trace.mark("before_image_load", image_context)
+            with trace.time_block("Image load", image_context):
+                try:
+                    data = await upload.read(config.MAX_IMAGE_BYTES + 1)
+                finally:
+                    await upload.close()
+            trace.info("File size: %.2f MB | %s", len(data) / (1024 * 1024), image_context)
+            trace.mark("after_image_load", image_context)
             # This update has no await between read and write, so request tasks cannot
             # interleave while changing the shared counter.
             batch_bytes[0] += len(data)
@@ -204,20 +233,37 @@ async def _process_upload(
                     application=application,
                 )
 
-            prepared = await asyncio.to_thread(
-                prepare_image,
-                data,
-                file_name,
-                upload.content_type,
-            )
-            image_preview_url = await asyncio.to_thread(
-                create_result_preview_data_url,
-                prepared,
-            )
+            with trace.time_block("Image preprocessing", image_context):
+                prepared = await asyncio.to_thread(
+                    prepare_image,
+                    data,
+                    file_name,
+                    upload.content_type,
+                    trace,
+                    image_context,
+                )
+            data = None
+
+            trace.mark("before_preview_creation", image_context)
+            with trace.time_block("Preview creation", image_context):
+                image_preview_url = await asyncio.to_thread(
+                    create_result_preview_data_url,
+                    prepared,
+                )
+            trace.mark("after_preview_creation", image_context)
+
             loop = asyncio.get_running_loop()
-            ocr = await loop.run_in_executor(ocr_executor, service.extract, prepared)
+            ocr = await loop.run_in_executor(
+                ocr_executor,
+                service.extract,
+                prepared,
+                trace,
+                image_context,
+            )
+            trace.mark("after_text_extraction", image_context)
             elapsed = round((time.perf_counter() - started) * 1000)
             if not ocr.fragments:
+                fields = unreadable_fields(application)
                 return LabelResult(
                     file_name=file_name,
                     status=Status.NEEDS_REVIEW,
@@ -225,13 +271,20 @@ async def _process_upload(
                     image_preview_url=image_preview_url,
                     processing_time_ms=elapsed,
                     confidence=0,
-                    fields=unreadable_fields(application),
+                    fields=fields,
                     extracted_text="",
                     error="No readable text was found. Try a flatter, sharper, evenly lit image.",
                 )
 
-            extracted = extract_fields(ocr, application)
-            status, fields = verify_application(application, extracted, ocr)
+            trace.stage(7, "Parse fields", image_context)
+            with trace.time_block("Field parsing", image_context):
+                extracted = extract_fields(ocr, application)
+            trace.mark("after_field_parsing", image_context)
+
+            trace.stage(8, "Verify fields", image_context)
+            with trace.time_block("Verification", image_context):
+                status, fields = verify_application(application, extracted, ocr)
+            trace.mark("after_verification", image_context)
             return LabelResult(
                 file_name=file_name,
                 status=status,
@@ -244,10 +297,11 @@ async def _process_upload(
             )
         except ImageValidationError as exc:
             elapsed = round((time.perf_counter() - started) * 1000)
+            trace.exception("Image preprocessing failed | %s", image_context)
             return _review_result(file_name, str(exc), elapsed, application)
         except OcrUnavailableError:
             elapsed = round((time.perf_counter() - started) * 1000)
-            logger.exception("Local OCR unavailable while processing an upload")
+            trace.exception("OCR failed: local OCR unavailable | %s", image_context)
             return _review_result(
                 file_name,
                 "The local OCR engine is temporarily unavailable. Please retry shortly.",
@@ -257,7 +311,7 @@ async def _process_upload(
             )
         except Exception:
             elapsed = round((time.perf_counter() - started) * 1000)
-            logger.exception("Unexpected label processing error")
+            trace.exception("Unexpected image processing failure | %s", image_context)
             return _review_result(
                 file_name,
                 "This image could not be processed. Confirm it is a valid JPEG or PNG and try again.",
@@ -265,6 +319,21 @@ async def _process_upload(
                 application,
                 image_preview_url,
             )
+        finally:
+            trace.stage(10, "Cleanup", image_context)
+            trace.info("Deleting OpenCV/NumPy image buffers | %s", image_context)
+            prepared = None
+            data = None
+            trace.info("Deleting Pillow image references (released during preprocessing) | %s", image_context)
+            trace.info("Deleting OCR result objects | %s", image_context)
+            ocr = None
+            extracted = None
+            fields = None
+            trace.info("Running gc.collect() | %s", image_context)
+            collected = gc.collect()
+            trace.info("gc.collect() complete | Objects collected: %d | %s", collected, image_context)
+            trace.mark("after_cleanup", image_context)
+            trace.timing("Total image time", started, image_context)
 
 
 @app.post("/verify", response_class=HTMLResponse)
@@ -275,45 +344,65 @@ async def verify(
     manual_applications: str = Form(default=""),
 ) -> HTMLResponse:
     valid_images = [image for image in images if image.filename]
+    trace = RequestTrace()
+    trace.request_start(
+        image_count=len(valid_images),
+        csv_uploaded=bool(application_csv and application_csv.filename),
+    )
+
+    def render_validation_error(message: str, status_code: int = 400) -> HTMLResponse:
+        trace.info("Request validation failed | %s", message)
+        trace.stage(9, "Build response")
+        trace.mark("before_response_render")
+        with trace.time_block("Response rendering"):
+            response = _render_index(request, message, status_code)
+        trace.mark("after_response_render")
+        trace.stage(11, "Response returned")
+        trace.log_summary(0)
+        return response
+
     if not valid_images:
-        return _render_index(request, "Choose at least one JPEG or PNG label image.", 400)
+        return render_validation_error("Choose at least one JPEG or PNG label image.")
     if len(valid_images) > config.MAX_IMAGES:
-        return _render_index(
-            request,
+        return render_validation_error(
             f"This prototype accepts up to {config.MAX_IMAGES} images in one batch.",
-            400,
         )
     uploaded_names = [Path(image.filename or "unnamed-image").name for image in valid_images]
     if len({name.casefold() for name in uploaded_names}) != len(uploaded_names):
-        return _render_index(
-            request,
-            "Each uploaded image must have a unique file name.",
-            400,
-        )
+        return render_validation_error("Each uploaded image must have a unique file name.")
 
     applications: dict[str, ApplicationData] | None = None
     if application_csv and application_csv.filename:
-        csv_bytes = await application_csv.read(2 * 1024 * 1024 + 1)
+        with trace.time_block("CSV load and parsing"):
+            try:
+                csv_bytes = await application_csv.read(2 * 1024 * 1024 + 1)
+            finally:
+                await application_csv.close()
         if len(csv_bytes) > 2 * 1024 * 1024:
-            return _render_index(request, "CSV exceeds the 2 MB limit.", 400)
+            return render_validation_error("CSV exceeds the 2 MB limit.")
         try:
             applications = parse_application_csv(csv_bytes)
         except CsvValidationError as exc:
-            return _render_index(request, str(exc), 400)
+            trace.exception("CSV parsing failed")
+            return render_validation_error(str(exc))
+        finally:
+            del csv_bytes
+            trace.memory("After CSV cleanup")
     else:
         try:
-            applications = parse_manual_applications(manual_applications)
+            with trace.time_block("Manual application parsing"):
+                applications = parse_manual_applications(manual_applications)
         except ManualValidationError as exc:
-            return _render_index(request, str(exc), 400)
+            trace.exception("Manual application parsing failed")
+            return render_validation_error(str(exc))
         missing = [name for name in uploaded_names if name.casefold() not in applications]
         if missing:
-            return _render_index(
-                request,
-                "Add application data for every image: " + ", ".join(missing) + ".",
-                400,
+            return render_validation_error(
+                "Add application data for every image: " + ", ".join(missing) + "."
             )
 
     batch_started = time.perf_counter()
+    trace.memory("Before batch processing")
     service = getattr(request.app.state, "ocr_service", ocr_service)
     executor = request.app.state.ocr_executor
     worker_limit = asyncio.Semaphore(config.OCR_MAX_WORKERS)
@@ -329,22 +418,45 @@ async def verify(
                 executor,
                 worker_limit,
                 batch_bytes,
+                trace,
+                image_index,
+                len(valid_images),
             )
-            for upload in valid_images
+            for image_index, upload in enumerate(valid_images, start=1)
         )
     )
+    trace.memory("After batch processing")
 
     batch_ms = round((time.perf_counter() - batch_started) * 1000)
     counts = {status.value: sum(result.status == status for result in results) for status in Status}
-    return templates.TemplateResponse(
-        request=request,
-        name="results.html",
-        context={
-            "app_name": config.APP_NAME,
-            "results": results,
-            "counts": counts,
-            "batch_ms": batch_ms,
-            "export_columns": EXPORT_COLUMNS,
-            "export_rows": _export_rows(results),
-        },
-    )
+    trace.stage(9, "Build response")
+    trace.mark("before_export_build")
+    with trace.time_block("Export data building"):
+        export_rows = _export_rows(results)
+    trace.info("Export rows built: %d", len(export_rows))
+    trace.mark("after_export_build")
+
+    trace.mark("before_response_render")
+    try:
+        with trace.time_block("Response rendering"):
+            response = templates.TemplateResponse(
+                request=request,
+                name="results.html",
+                context={
+                    "app_name": config.APP_NAME,
+                    "results": results,
+                    "counts": counts,
+                    "batch_ms": batch_ms,
+                    "export_columns": EXPORT_COLUMNS,
+                    "export_rows": export_rows,
+                },
+            )
+    except Exception:
+        trace.exception("Response creation failed")
+        trace.log_summary(len(results))
+        raise
+    trace.mark("after_response_render")
+    trace.memory("After response creation")
+    trace.stage(11, "Response returned")
+    trace.log_summary(len(results))
+    return response

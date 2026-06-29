@@ -145,7 +145,8 @@ def test_imported_manual_submission_requires_country() -> None:
     assert "country of origin" in response.text
 
 
-def test_complete_manual_submission_renders_pass(monkeypatch) -> None:
+def test_complete_manual_submission_renders_pass(monkeypatch, caplog) -> None:
+    caplog.set_level("INFO", logger="app.verification")
     lines = [
         "OLD TOM DISTILLERY",
         "Kentucky Straight Bourbon Whiskey",
@@ -159,7 +160,7 @@ def test_complete_manual_submission_renders_pass(monkeypatch) -> None:
         text="\n".join(lines),
         average_confidence=0.96,
     )
-    monkeypatch.setattr(ocr_service, "extract", lambda image: fake_ocr)
+    monkeypatch.setattr(ocr_service, "extract", lambda image, *args, **kwargs: fake_ocr)
 
     with TestClient(app) as client:
         response = client.post(
@@ -240,6 +241,15 @@ def test_complete_manual_submission_renders_pass(monkeypatch) -> None:
     assert preview_match is not None
     with Image.open(io.BytesIO(base64.b64decode(preview_match.group(1)))) as preview:
         assert preview.size == (800, 1000)
+    assert "Starting verification request" in caplog.text
+    assert "Request ID:" in caplog.text
+    assert "STEP 1 Loading image" in caplog.text
+    assert "MARK after_cleanup" in caplog.text
+    assert "MARK before_export_build" in caplog.text
+    assert "MARK after_export_build" in caplog.text
+    assert "MARK before_response_render" in caplog.text
+    assert "MARK after_response_render" in caplog.text
+    assert "Peak memory observed:" in caplog.text
 
 
 def test_results_script_filters_exports_and_guards_navigation() -> None:
@@ -302,7 +312,7 @@ def test_manual_batch_uses_application_data_for_each_file(monkeypatch) -> None:
         text="\n".join(lines),
         average_confidence=0.96,
     )
-    monkeypatch.setattr(ocr_service, "extract", lambda image: fake_ocr)
+    monkeypatch.setattr(ocr_service, "extract", lambda image, *args, **kwargs: fake_ocr)
     applications = [
         {
             "file_name": "front.png",
@@ -359,7 +369,7 @@ def test_batch_ocr_defaults_to_sequential_processing_and_preserves_order(monkeyp
     active = 0
     peak = 0
 
-    def fake_extract(image) -> OcrResult:
+    def fake_extract(image, *args, **kwargs) -> OcrResult:
         nonlocal active, peak
         with lock:
             active += 1

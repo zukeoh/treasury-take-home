@@ -4,8 +4,8 @@ easyocr==1.7.2
 numpy==1.26.4
 opencv-python-headless==4.10.0.84
 Pillow==10.4.0
+psutil==6.1.1
 pydantic==2.10.6
 python-multipart==0.0.20
 rapidfuzz==3.12.2
 uvicorn[standard]==0.34.3
-

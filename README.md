@@ -63,10 +63,12 @@ No environment variables are required. Optional deployment tuning is documented 
 ### OCR
 
 - Runs EasyOCR locally with one process-wide reader.
-- Resizes oversized artwork and retries weak first passes with contrast-enhanced grayscale.
+- Converts artwork to RGB and resizes every OCR input to a maximum 1600 px long edge by default.
+- Can retry weak first passes with contrast-enhanced grayscale, but keeps that memory-intensive pass disabled by default.
 - Supports batch uploads while processing images through a process-wide concurrency gate.
 - Processes at most `OCR_MAX_WORKERS` images concurrently across all requests and preserves upload order in the results.
 - Defaults to one OCR operation at a time for predictable memory usage on small cloud instances.
+- Emits request-scoped stage, timing, cleanup, and RSS memory logs around preprocessing, OCR, parsing, export construction, and response rendering.
 - Routes unreadable or low-confidence content to NEEDS REVIEW instead of inventing a match.
 
 ### Verification
@@ -115,7 +117,11 @@ Deterministic verification rules
 Explainable HTML results + CSV export
 ```
 
-EasyOCR initializes once during application startup. A process-wide executor and reader-level semaphore bound concurrent inference to `OCR_MAX_WORKERS`, including work submitted by different users at the same time. The default is 1, so the shared reader processes one image at a time. A confident first OCR pass returns immediately; a weak pass receives one enhanced retry under the same gate.
+The process-wide EasyOCR reader is initialized once under a lock during startup; the same locked initializer is a safe lazy fallback and never creates a reader per image. A process-wide executor and reader-level semaphore bound concurrent inference to `OCR_MAX_WORKERS`, including work submitted by different users at the same time. The default is 1, so the shared reader processes one image at a time.
+
+Every image is converted to an owned RGB buffer and reduced to `MAX_OCR_IMAGE_DIMENSION` before OCR. The contrast-enhanced retry and its additional grayscale/OpenCV buffers are created only when `ENABLE_SECOND_OCR_PASS=true`; the default is false for predictable memory use on small Render instances.
+
+Each verification request receives an eight-character request ID. Structured INFO logs record numbered crash-isolation steps, stage timings, current RSS, peak observed RSS, cleanup, export-data construction, and template rendering. The trace stores metadata only—never image data, base64 previews, OCR text, or NumPy arrays.
 
 Batch verification remains one synchronous HTTP request. Configurable gated concurrency supports small and moderate batches, but it does not turn 200–300 image reviews into a production job system. Production-scale batches need a durable background queue with controlled workers, progress updates, retries, and resumable results.
 
@@ -195,7 +201,7 @@ pip install -r requirements-test.txt
 pytest
 ```
 
-The 43 automated tests cover normalization, reordered-token coverage, alcohol/proof and volume parsing, CSV and manual-data validation, strict warning behavior, category-specific rules, overall decisions, extraction edge cases, complete upload-to-results requests, browser-facing safeguards, exports, process-wide OCR gating, health checks, and deployment defaults. HTTP tests disable model startup and inject deterministic OCR output, so the suite is fast and repeatable.
+The 44 automated tests cover normalization, reordered-token coverage, alcohol/proof and volume parsing, CSV and manual-data validation, strict warning behavior, category-specific rules, overall decisions, extraction edge cases, complete upload-to-results requests, browser-facing safeguards, exports, process-wide OCR gating, structured request tracing, memory-conscious preprocessing, health checks, and deployment defaults. HTTP tests disable model startup and inject deterministic OCR output, so the suite is fast and repeatable.
 
 Twelve generated label images and three CSV batches live under `tests/resources/sample_data/`. They exercise passing labels, fuzzy matching, missing warnings and origin, numeric mismatches, low contrast, cropping, and skew.
 
@@ -212,10 +218,14 @@ No environment variables are required for the prototype. Optional tuning variabl
 | `MAX_IMAGE_BYTES` | `12582912` | Per-image upload limit |
 | `MAX_TOTAL_BYTES` | `104857600` | Total request upload limit |
 | `MAX_IMAGES` | `300` | Max images per batch |
-| `MAX_IMAGE_DIMENSION` | `3200` | Resize target for OCR |
+| `MAX_IMAGE_DIMENSION` | `3200` | Absolute preprocessing dimension cap |
+| `MAX_OCR_IMAGE_DIMENSION` | `1600` | OCR long-edge resize target |
+| `ENABLE_SECOND_OCR_PASS` | `false` | Enables the enhanced retry for weak OCR |
 | `OCR_GPU` | `false` | Enables GPU OCR if available |
 
 `EASYOCR_MODEL_DIR` may also override the model location for a native deployment. Docker already sets it to the model directory embedded during the image build. `PYTHONUNBUFFERED=1` is set by the Dockerfile.
+
+The Render blueprint explicitly pins `OCR_MAX_WORKERS=1`, `MAX_OCR_IMAGE_DIMENSION=1600`, and `ENABLE_SECOND_OCR_PASS=false`. These are conservative optional settings, not required secrets; the same values are already application defaults.
 
 1. Push the repository to GitHub.
 2. In Render, choose **New → Blueprint**.
@@ -234,6 +244,7 @@ The same container can later be evaluated for Azure Container Apps or Azure App 
 - Uploaded files and application data are read into memory for the active request and are not persisted by the application.
 - Result previews are bounded JPEG data URLs returned in the HTML response and retained only in the browser page.
 - OCR text and overrides are not stored server-side.
+- Request traces retain only identifiers, timings, counts, dimensions, and memory measurements—not OCR text, images, previews, or arrays.
 - The container includes application code, dependencies, and EasyOCR weights; those model files are not user data.
 - Image type, decoded format, size, total request size, and pixel count are validated before OCR.
 - No live COLA access, authentication, approval action, or external inference service is included.
@@ -243,7 +254,7 @@ The same container can later be evaluated for Azure Container Apps or Azure App 
 - Entered manual or CSV values stand in for trusted COLA application data.
 - Deterministic rules favor auditability over broad generative interpretation.
 - Expected-value-guided extraction works well for comparison but is not a general document-understanding system.
-- One OCR worker is the safe default for predictable memory usage. Operators should load-test before raising `OCR_MAX_WORKERS`.
+- One OCR worker, 1600 px inputs, and no enhanced retry are the safe defaults for predictable memory usage. Operators should load-test before raising these limits.
 - PASS, FAIL, and NEEDS REVIEW are pre-screening outcomes; a human agent remains the decision-maker.
 
 ## Known Limitations
