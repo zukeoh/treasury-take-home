@@ -286,6 +286,8 @@ The same container can later be evaluated for Azure Container Apps or Azure App 
 - Synchronous HTTP processing can time out on large or difficult batches.
 - A 300-image configuration limit describes accepted batch size, not a production throughput guarantee.
 - OCR remains sensitive to severe glare, curvature, decorative fonts, extreme skew, and partial crops.
+- The generated test labels are limited by a shared synthetic generator. Although they vary beverage category, damage, lighting, rotation, cropping, scale, and layout, they still reuse related fonts, drawing primitives, warning placement, image dimensions, and rendering assumptions. This makes portions of the dataset more visually similar and predictable than independently photographed production labels.
+- Synthetic fixtures are useful for repeatable regression testing, but they are not an unbiased accuracy benchmark. Production validation should use a larger, de-identified, human-reviewed corpus covering different printers, containers, materials, camera devices, languages, typography, multi-panel artwork, backgrounds, and naturally occurring damage.
 - Physical type size and typography cannot be proven from an unscaled digital image.
 - Conditional commodity rules are checked only when enough application context is supplied.
 - There is no login, audit log, durable job state, database, or live COLA integration.
