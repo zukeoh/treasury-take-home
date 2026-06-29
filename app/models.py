@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from enum import Enum
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 class Status(str, Enum):
@@ -57,16 +57,34 @@ class ApplicationData(BaseModel):
         return self
 
 
-class OcrFragment(BaseModel):
+class OcrBlock(BaseModel):
     text: str
     confidence: float = Field(ge=0, le=1)
+    bbox: list[float] | list[list[float]] | None = None
 
 
 class OcrResult(BaseModel):
-    fragments: list[OcrFragment] = Field(default_factory=list)
+    blocks: list[OcrBlock] = Field(
+        default_factory=list,
+        validation_alias=AliasChoices("blocks", "fragments"),
+    )
     text: str = ""
     average_confidence: float = Field(default=0, ge=0, le=1)
+    engine: str = "unknown"
+    elapsed_ms: int = 0
     used_enhanced_pass: bool = False
+
+    @property
+    def fragments(self) -> list[OcrBlock]:
+        """Backward-compatible name used by the existing verification pipeline."""
+
+        return self.blocks
+
+
+# Compatibility names for existing imports plus the explicit shared OCR contract.
+OcrFragment = OcrBlock
+OCRBlock = OcrBlock
+OCRResult = OcrResult
 
 
 class FieldResult(BaseModel):
@@ -88,6 +106,8 @@ class LabelResult(BaseModel):
     image_preview_url: str | None = None
     processing_time_ms: int = 0
     confidence: float = 0
+    ocr_engine: str = ""
+    ocr_elapsed_ms: int = 0
     fields: list[FieldResult] = Field(default_factory=list)
     extracted_text: str = ""
     error: str | None = None

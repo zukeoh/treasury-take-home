@@ -7,9 +7,15 @@ services:
     autoDeploy: true
     # Render uses the Dockerfile CMD, including its single Uvicorn worker.
     envVars:
+      - key: OCR_ENGINE
+        value: tesseract
       - key: OCR_MAX_WORKERS
         value: "1"
       - key: MAX_OCR_IMAGE_DIMENSION
         value: "1600"
       - key: ENABLE_SECOND_OCR_PASS
         value: "false"
+      - key: TESSERACT_PSM
+        value: "11"
+      - key: TESSERACT_DESKEW
+        value: "true"

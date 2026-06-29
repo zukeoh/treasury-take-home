@@ -11,7 +11,7 @@ from app.csv_service import parse_application_csv
 RESOURCE_ROOT = Path(__file__).parent / "resources" / "sample_data"
 LABEL_DIR = RESOURCE_ROOT / "labels"
 CSV_DIR = RESOURCE_ROOT / "csv"
-EXPECTED_LABELS = {
+REQUIRED_ORIGINAL_LABELS = {
     "old_tom_distillery.png",
     "stones_throw_case_variation.png",
     "casa_azul_tequila_import.png",
@@ -39,20 +39,35 @@ LEGACY_HEADER = [
 
 def test_all_required_label_images_exist_and_decode() -> None:
     generated = {path.name for path in LABEL_DIR.glob("*.png")}
-    assert generated == EXPECTED_LABELS
+    assert len(generated) == 50
+    assert REQUIRED_ORIGINAL_LABELS.issubset(generated)
+    sizes: set[tuple[int, int]] = set()
     for path in LABEL_DIR.glob("*.png"):
         with Image.open(path) as image:
             image.verify()
             assert image.format == "PNG"
+        with Image.open(path) as image:
+            sizes.add(image.size)
+    assert len(sizes) >= 5
 
 
 def test_csv_files_use_required_schema_and_match_images() -> None:
+    generated = {path.name for path in LABEL_DIR.glob("*.png")}
+    expected_counts = {
+        "sample_labels.csv": 18,
+        "failing_labels.csv": 16,
+        "batch_mixed.csv": 50,
+    }
     for name in ("sample_labels.csv", "failing_labels.csv", "batch_mixed.csv"):
         path = CSV_DIR / name
         with path.open(encoding="utf-8", newline="") as handle:
             rows = list(csv.reader(handle))
         assert rows[0] == LEGACY_HEADER
-        assert {row[0] for row in rows[1:]}.issubset(EXPECTED_LABELS)
+        csv_names = {row[0] for row in rows[1:]}
+        assert len(csv_names) == expected_counts[name]
+        assert csv_names.issubset(generated)
+        if name == "batch_mixed.csv":
+            assert csv_names == generated
         parsed = parse_application_csv(path.read_bytes())
         assert len(parsed) == len(rows) - 1
 
@@ -61,6 +76,9 @@ def test_sample_resource_readme_exists() -> None:
     readme = (RESOURCE_ROOT / "README.md").read_text(encoding="utf-8")
     assert "synthetic" in readme.casefold()
     assert "batch_mixed.csv" in readme
+    assert "50 labels" in readme
+    assert "torn" in readme.casefold()
+    assert "perspective" in readme.casefold()
 
 
 def test_rule_documentation_lists_official_sources() -> None:

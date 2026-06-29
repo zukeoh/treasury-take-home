@@ -78,6 +78,8 @@ EXPORT_COLUMNS = (
     "wine_sulfite_declaration",
     "spirits_age_statement",
     "spirits_commodity_statement",
+    "ocr_engine",
+    "ocr_elapsed_ms",
     "original_result",
     "final_result",
     "overwritten",
@@ -114,6 +116,7 @@ async def health(request: Request) -> JSONResponse:
         {
             "status": "ok" if service.ready else "degraded",
             "ocr_ready": service.ready,
+            "ocr_engine": service.engine,
             "version": config.APP_VERSION,
         },
         status_code=200 if service.ready or config.SKIP_OCR_INIT else 503,
@@ -145,6 +148,7 @@ def _review_result(
     elapsed_ms: int = 0,
     application: ApplicationData | None = None,
     image_preview_url: str | None = None,
+    ocr_engine: str = "",
 ) -> LabelResult:
     return LabelResult(
         file_name=file_name,
@@ -152,6 +156,7 @@ def _review_result(
         application=application,
         image_preview_url=image_preview_url,
         processing_time_ms=elapsed_ms,
+        ocr_engine=ocr_engine,
         error=message,
     )
 
@@ -166,6 +171,8 @@ def _export_rows(results: list[LabelResult]) -> list[dict[str, str | bool]]:
             column: application.get(column, "") for column in EXPORT_COLUMNS
         }
         row["file_name"] = result.file_name
+        row["ocr_engine"] = result.ocr_engine
+        row["ocr_elapsed_ms"] = result.ocr_elapsed_ms
         row["original_result"] = result.status.value
         row["final_result"] = result.status.value
         row["overwritten"] = False
@@ -210,6 +217,7 @@ async def _process_upload(
             return _review_result(
                 file_name,
                 "No application row matched this file name. Add an exact file_name entry and try again.",
+                ocr_engine=service.engine,
             )
 
         try:
@@ -231,6 +239,7 @@ async def _process_upload(
                     file_name,
                     f"The combined batch exceeds the {limit_mb} MB request limit.",
                     application=application,
+                    ocr_engine=service.engine,
                 )
 
             with trace.time_block("Image preprocessing", image_context):
@@ -271,6 +280,8 @@ async def _process_upload(
                     image_preview_url=image_preview_url,
                     processing_time_ms=elapsed,
                     confidence=0,
+                    ocr_engine=ocr.engine if ocr.engine != "unknown" else service.engine,
+                    ocr_elapsed_ms=ocr.elapsed_ms,
                     fields=fields,
                     extracted_text="",
                     error="No readable text was found. Try a flatter, sharper, evenly lit image.",
@@ -292,13 +303,21 @@ async def _process_upload(
                 image_preview_url=image_preview_url,
                 processing_time_ms=elapsed,
                 confidence=ocr.average_confidence,
+                ocr_engine=ocr.engine if ocr.engine != "unknown" else service.engine,
+                ocr_elapsed_ms=ocr.elapsed_ms,
                 fields=fields,
                 extracted_text=ocr.text,
             )
         except ImageValidationError as exc:
             elapsed = round((time.perf_counter() - started) * 1000)
             trace.exception("Image preprocessing failed | %s", image_context)
-            return _review_result(file_name, str(exc), elapsed, application)
+            return _review_result(
+                file_name,
+                str(exc),
+                elapsed,
+                application,
+                ocr_engine=service.engine,
+            )
         except OcrUnavailableError:
             elapsed = round((time.perf_counter() - started) * 1000)
             trace.exception("OCR failed: local OCR unavailable | %s", image_context)
@@ -308,6 +327,7 @@ async def _process_upload(
                 elapsed,
                 application,
                 image_preview_url,
+                service.engine,
             )
         except Exception:
             elapsed = round((time.perf_counter() - started) * 1000)
@@ -318,6 +338,7 @@ async def _process_upload(
                 elapsed,
                 application,
                 image_preview_url,
+                service.engine,
             )
         finally:
             trace.stage(10, "Cleanup", image_context)

@@ -5,19 +5,15 @@ from __future__ import annotations
 import re
 from collections import Counter
 
-from rapidfuzz.fuzz import partial_ratio
-
 from app.config import GOVERNMENT_WARNING
 from app.models import FieldResult, OcrResult, Status
 from app.normalizer import extract_alcohol_measures, normalize_text
 
 
 UPPERCASE_HEADER = re.compile(r"\bGOVERNMENT\s+WARNING\s*:")
-ANYCASE_HEADER = re.compile(r"\bgovernment\s+warning\s*:?", re.I)
 NON_ALCOHOLIC = re.compile(r"\b(?:non[-\s]?alcoholic|alcohol[-\s]?free)\b", re.I)
 WARNING_CONFIDENCE_THRESHOLD = 0.55
-PASS_WORDING_THRESHOLD = 98
-TOKEN_COVERAGE_REVIEW_THRESHOLD = 0.55
+TOKEN_COVERAGE_REVIEW_THRESHOLD = 0.75
 WARNING_SOURCE = {
     "requirement_basis": (
         "Common required warning for alcohol beverages containing at least 0.5% alcohol by volume."
@@ -124,23 +120,24 @@ def validate_government_warning(
             **WARNING_SOURCE,
         )
 
-    wording_score = float(
-        partial_ratio(normalize_text(expected), normalize_text(extracted_text))
-    )
-    expected_tokens = Counter(normalize_text(expected).split())
-    detected_tokens = Counter(normalize_text(extracted_text).split())
+    expected_exact = " ".join(expected.split())
+    extracted_exact = " ".join(extracted_text.split())
+    exact_wording_match = expected_exact in extracted_exact
+    expected_normalized = normalize_text(expected)
+    extracted_normalized = normalize_text(extracted_text)
+    expected_tokens = Counter(expected_normalized.split())
+    detected_tokens = Counter(extracted_normalized.split())
     matched_tokens = sum((expected_tokens & detected_tokens).values())
     token_coverage = matched_tokens / sum(expected_tokens.values())
-    heading_tokens_present = {"government", "warning"}.issubset(detected_tokens)
     uppercase_header = bool(UPPERCASE_HEADER.search(extracted_text))
-    any_header = ANYCASE_HEADER.search(extracted_text)
     detected = (
-        f"Warning wording {wording_score:.0f}% similar; {token_coverage:.0%} required-word coverage; "
+        f"Exact statutory wording {'matched' if exact_wording_match else 'not matched'}; "
+        f"{token_coverage:.0%} required-word coverage; "
         + ("uppercase heading detected" if uppercase_header else "uppercase heading not confirmed")
     )
 
     if (
-        wording_score >= PASS_WORDING_THRESHOLD
+        exact_wording_match
         and uppercase_header
         and confidence < WARNING_CONFIDENCE_THRESHOLD
     ):
@@ -154,7 +151,7 @@ def validate_government_warning(
             ),
             **WARNING_SOURCE,
         )
-    if wording_score >= PASS_WORDING_THRESHOLD and uppercase_header:
+    if exact_wording_match and uppercase_header:
         return FieldResult(
             field="Government Health Warning",
             expected=expected,
@@ -166,30 +163,22 @@ def validate_government_warning(
             ),
             **WARNING_SOURCE,
         )
-    if token_coverage >= TOKEN_COVERAGE_REVIEW_THRESHOLD and heading_tokens_present:
+    if token_coverage >= TOKEN_COVERAGE_REVIEW_THRESHOLD:
+        heading_issue = (
+            "The required heading words or capitalization were not confirmed. "
+            if not uppercase_header
+            else ""
+        )
         return FieldResult(
             field="Government Health Warning",
             expected=expected,
             detected=detected,
             status=Status.NEEDS_REVIEW,
             explanation=(
-                "Most required warning words and both heading words were detected, but OCR "
-                "reading order was unreliable. Confirm the exact wording and heading manually."
+                "At least 75% of the required warning words were detected, but exact wording "
+                f"or OCR reading order was unreliable. {heading_issue}"
+                "Confirm the exact wording and heading manually."
             ),
-            **WARNING_SOURCE,
-        )
-    if wording_score >= 72 or (wording_score >= 60 and any_header):
-        issue = (
-            "the heading capitalization is questionable"
-            if not uppercase_header
-            else "the OCR wording is incomplete or uncertain"
-        )
-        return FieldResult(
-            field="Government Health Warning",
-            expected=expected,
-            detected=detected,
-            status=Status.NEEDS_REVIEW,
-            explanation=f"Most warning content appears present, but {issue}.",
             **WARNING_SOURCE,
         )
     return FieldResult(

@@ -79,6 +79,7 @@ def test_healthz_reports_application_status() -> None:
     assert response.status_code == 200
     assert response.json()["status"] in {"ok", "degraded"}
     assert "ocr_ready" in response.json()
+    assert response.json()["ocr_engine"] == "easyocr"
     assert old_route.status_code == 404
 
 
@@ -204,6 +205,7 @@ def test_complete_manual_submission_renders_pass(monkeypatch, caplog) -> None:
     assert 'id="image-viewer-close"' in response.text
     assert 'id="export-data"' in response.text
     assert "OLD TOM DISTILLERY" in response.text
+    assert "OCR Engine: EasyOCR" in response.text
     assert "Upload another label" not in response.text
     assert "results-references-title" not in response.text
     assert '<section class="footer-reference-group">' in response.text
@@ -230,6 +232,7 @@ def test_complete_manual_submission_renders_pass(monkeypatch, caplog) -> None:
     assert export_payload["rows"][0]["original_result"] == "PASS"
     assert export_payload["rows"][0]["final_result"] == "PASS"
     assert export_payload["rows"][0]["overwritten"] is False
+    assert export_payload["rows"][0]["ocr_engine"] == "easyocr"
     assert 'data-original-status="PASS"' in response.text
     assert 'data-override-status="PASS"' in response.text
     assert 'data-override-status="NEEDS REVIEW"' in response.text

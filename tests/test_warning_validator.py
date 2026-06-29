@@ -1,5 +1,6 @@
 from app.config import GOVERNMENT_WARNING
 from app.models import Status
+from app.normalizer import normalize_text
 from app.warning_validator import (
     government_warning_required,
     validate_government_warning,
@@ -10,6 +11,51 @@ from app.warning_validator import (
 def test_exact_warning_passes() -> None:
     result = validate_government_warning(GOVERNMENT_WARNING)
     assert result.status == Status.PASS
+
+
+def test_near_exact_warning_does_not_pass() -> None:
+    text = GOVERNMENT_WARNING.replace("Consumption", "Consumptiom")
+
+    result = validate_government_warning(text)
+
+    assert result.status != Status.PASS
+    assert "fuzzy" not in result.detected.casefold()
+
+
+def test_warning_with_changed_punctuation_does_not_pass() -> None:
+    text = GOVERNMENT_WARNING.replace("problems.", "problems!")
+
+    result = validate_government_warning(text)
+
+    assert result.status != Status.PASS
+
+
+def test_warning_at_75_percent_word_coverage_needs_review() -> None:
+    tokens = normalize_text(GOVERNMENT_WARNING).split()
+    detected = " ".join(tokens[: (len(tokens) * 3 + 3) // 4])
+
+    result = validate_government_warning(detected)
+
+    assert result.status == Status.NEEDS_REVIEW
+    assert "required-word coverage" in result.detected
+
+
+def test_warning_below_75_percent_word_coverage_fails() -> None:
+    tokens = normalize_text(GOVERNMENT_WARNING).split()
+    detected = " ".join(tokens[: (len(tokens) * 3 // 4) - 1])
+
+    result = validate_government_warning(detected)
+
+    assert result.status == Status.FAIL
+
+
+def test_warning_above_75_percent_without_heading_needs_review() -> None:
+    text = GOVERNMENT_WARNING.replace("GOVERNMENT WARNING:", "")
+
+    result = validate_government_warning(text)
+
+    assert result.status == Status.NEEDS_REVIEW
+    assert "heading" in result.explanation.casefold()
 
 
 def test_title_case_heading_needs_review() -> None:

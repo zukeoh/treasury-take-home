@@ -2,4 +2,16 @@ file_name,brand_name,class_type,alcohol_content,net_contents,bottler_name_addres
 red_ridge_missing_warning.png,RED RIDGE DISTILLING,Rye Whiskey,45% Alc./Vol. (90 Proof),750 mL,"Red Ridge Distilling Co., Asheville, NC",,false
 north_point_wrong_abv.png,NORTH POINT VODKA,Vodka,45% Alc./Vol.,750 mL,"North Point Spirits, Portland, OR",,false
 sol_y_mar_missing_country.png,SOL Y MAR,Tequila,40% Alc./Vol.,750 mL,"Sol Y Mar Imports, Miami, FL",Mexico,true
+cropped_warning_label.png,HARBOR LIGHT,Chardonnay,13% Alc./Vol.,750 mL,"Harbor Light Cellars, Sonoma, CA",,false
 hilltop_wrong_net_contents.png,HILLTOP GIN,Gin,40% Alc./Vol.,750 mL,"Hilltop Distillery, Denver, CO",,false
+ember_cask_torn_bourbon.png,EMBER CASK,Straight Bourbon Whiskey,47% Alc./Vol. (94 Proof),750 mL,"Distilled and Bottled by Ember Cask Co., Lexington, KY",,false
+midnight_vodka_blurry.png,MIDNIGHT CURRENT,Vodka,40% Alc./Vol. (80 Proof),1 L,"Bottled by Midnight Current Spirits, Detroit, MI",,false
+jade_dragon_flipped.png,JADE DRAGON,Rice Spirit,38% Alc./Vol. (76 Proof),700 mL,"Imported by Jade Dragon Imports, Seattle, WA",China,true
+black_anchor_cropped_side.png,BLACK ANCHOR,Navy Strength Gin,57% Alc./Vol. (114 Proof),750 mL,"Black Anchor Spirits, Norfolk, VA",,false
+summit_brandy_perspective.png,SUMMIT HOUSE,French Brandy,40% Alc./Vol. (80 Proof),750 mL,"Imported by Summit House Imports, Boston, MA",France,true
+frost_line_upside_down.png,FROST LINE,Riesling,12% Alc./Vol.,750 mL,"Produced by Frost Line Cellars, Traverse City, MI",,false
+broken_compass_cropped_top.png,BROKEN COMPASS,Red Blend,14% Alc./Vol.,750 mL,"Produced by Broken Compass Wines, Yakima, WA",,false
+night_jar_dark.png,NIGHT JAR,Petite Sirah,14.5% Alc./Vol.,750 mL,"Produced by Night Jar Cellars, Lodi, CA",,false
+golden_hour_occluded.png,GOLDEN HOUR,Zinfandel,14.2% Alc./Vol.,750 mL,"Golden Hour Wines, Sonoma, CA",,false
+upside_down_stout.png,NORTH STAR STOUT,Oatmeal Stout,6.2% Alc./Vol.,12 FL. OZ. (355 mL),"Brewed by North Star Brewing, Fargo, ND",,false
+half_label_wheat_cropped.png,HALF LABEL,American Wheat Ale,4.9% Alc./Vol.,12 FL. OZ. (355 mL),"Brewed by Half Label Brewing, Omaha, NE",,false

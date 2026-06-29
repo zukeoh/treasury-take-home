@@ -1,6 +1,7 @@
 from app.config import GOVERNMENT_WARNING
 from app.extraction_service import extract_fields
 from app.models import ApplicationData, BeverageType, OcrFragment, OcrResult, Status
+from app.normalizer import normalize_text
 from app.verification_service import verify_application
 
 
@@ -54,6 +55,21 @@ def test_wrong_alcohol_value_fails() -> None:
     ocr = _ocr("40% Alc./Vol. (80 Proof)")
     status, _ = verify_application(application, extract_fields(ocr, application), ocr)
     assert status == Status.FAIL
+
+
+def test_warning_only_mismatch_at_75_percent_routes_overall_to_review() -> None:
+    application = _application()
+    ocr = _ocr()
+    tokens = normalize_text(GOVERNMENT_WARNING).split()
+    partial_warning = " ".join(tokens[: (len(tokens) * 3 + 3) // 4])
+    ocr.fragments[-1].text = partial_warning
+    ocr.text = ocr.text.replace(GOVERNMENT_WARNING, partial_warning)
+
+    status, fields = verify_application(application, extract_fields(ocr, application), ocr)
+
+    warning = next(field for field in fields if field.field == "Government Health Warning")
+    assert warning.status == Status.NEEDS_REVIEW
+    assert status == Status.NEEDS_REVIEW
 
 
 def test_producer_extraction_prefers_complete_address_over_brand_fragment() -> None:

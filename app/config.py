@@ -22,6 +22,16 @@ def _bool_env(name: str, default: bool = False) -> bool:
     return value.strip().lower() in {"1", "true", "yes", "on"}
 
 
+def _bounded_int_env(name: str, default: int, minimum: int, maximum: int) -> int:
+    """Read an integer constrained to a safe supported range."""
+
+    try:
+        value = int(os.getenv(name, str(default)))
+    except (TypeError, ValueError):
+        return default
+    return value if minimum <= value <= maximum else default
+
+
 BASE_DIR = Path(__file__).resolve().parent
 TEMPLATES_DIR = BASE_DIR / "templates"
 STATIC_DIR = BASE_DIR / "static"
@@ -39,10 +49,13 @@ MAX_OCR_IMAGE_DIMENSION = _positive_int_env("MAX_OCR_IMAGE_DIMENSION", 1600)
 MAX_IMAGE_PIXELS = _positive_int_env("MAX_IMAGE_PIXELS", 36_000_000)
 
 OCR_LANGUAGES = ["en"]
+OCR_ENGINE = os.getenv("OCR_ENGINE", "easyocr").strip().lower()
 OCR_GPU = _bool_env("OCR_GPU")
 OCR_MODEL_DIR = os.getenv("EASYOCR_MODEL_DIR") or None
 OCR_MAX_WORKERS = _positive_int_env("OCR_MAX_WORKERS", 1)
 ENABLE_SECOND_OCR_PASS = _bool_env("ENABLE_SECOND_OCR_PASS")
+TESSERACT_PSM = _bounded_int_env("TESSERACT_PSM", 11, 3, 13)
+TESSERACT_DESKEW = _bool_env("TESSERACT_DESKEW", True)
 SKIP_OCR_INIT = _bool_env("TTB_SKIP_OCR_INIT")
 
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()

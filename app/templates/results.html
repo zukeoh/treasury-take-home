@@ -56,7 +56,7 @@
           <div class="result-title-copy">
             <span class="result-position" data-result-position>Result {{ loop.index }} Of {{ results|length }}</span>
             <h2>{{ result.file_name }}</h2>
-            <span>{{ result.processing_time_ms }} ms processing time{% if result.confidence %} · {{ '%.0f'|format(result.confidence * 100) }}% average OCR confidence{% endif %}</span>
+            <span>{{ result.processing_time_ms }} ms processing time{% if result.confidence %} · {{ '%.0f'|format(result.confidence * 100) }}% average OCR confidence{% endif %}{% if result.ocr_engine %} · OCR Engine: {% if result.ocr_engine == 'easyocr' %}EasyOCR{% elif result.ocr_engine == 'tesseract' %}Tesseract{% else %}{{ result.ocr_engine|title }}{% endif %}{% endif %}</span>
           </div>
         </div>
         <div class="result-header-actions">

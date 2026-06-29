@@ -1,6 +1,6 @@
 # TTB Alcohol Label Pre-Screener
 
-TTB Alcohol Label Pre-Screener is a deployable proof of concept that compares alcohol beverage label artwork against expected application data. It uses local EasyOCR and deterministic validation rules to return explainable PASS, FAIL, or NEEDS REVIEW results for each label field. The prototype requires no API keys, hosted AI service, or database, and it does not persist uploaded label data.
+TTB Alcohol Label Pre-Screener is a deployable proof of concept that compares alcohol beverage label artwork against expected application data. It uses selectable local OCR engines and deterministic validation rules to return explainable PASS, FAIL, or NEEDS REVIEW results for each label field. The prototype requires no API keys, hosted AI service, or database, and it does not persist uploaded label data.
 
 > This is a decision-support prototype, not a COLA approval system or legal determination.
 
@@ -26,7 +26,7 @@ Results summarize the batch and explain every field-level decision. Agents can f
 
 ### Docker
 
-Docker is the most reproducible path because the image includes the English EasyOCR model weights.
+Docker is the most reproducible path because the image includes English EasyOCR model weights and the Tesseract system package.
 
 ```bash
 docker build -t ttb-label-pre-screener .
@@ -37,7 +37,7 @@ Open [http://localhost:8000](http://localhost:8000). The health endpoint is `/he
 
 ### Native Python
 
-Use Python 3.11. The first native run downloads the English EasyOCR model; no API key is required.
+Use Python 3.11. The first native EasyOCR run downloads its English model. Native Tesseract use also requires the `tesseract-ocr` system package. Neither engine requires an API key.
 
 ```powershell
 py -3.11 -m venv .venv
@@ -62,7 +62,8 @@ No environment variables are required. Optional deployment tuning is documented 
 
 ### OCR
 
-- Runs EasyOCR locally with one process-wide reader.
+- Supports EasyOCR and Tesseract through one provider interface and shared OCR result model.
+- Uses EasyOCR by default and initializes only the selected engine.
 - Converts artwork to RGB and resizes every OCR input to a maximum 1600 px long edge by default.
 - Can retry weak first passes with contrast-enhanced grayscale, but keeps that memory-intensive pass disabled by default.
 - Supports batch uploads while processing images through a process-wide concurrency gate.
@@ -105,7 +106,7 @@ FastAPI validation --> manual data / CSV matching
 Pillow + OpenCV preprocessing
         |
         v
-Bounded executor --> process-wide EasyOCR reader
+Bounded executor --> selected process-wide OCR provider
         |
         v
 Expected-value-guided extraction
@@ -117,7 +118,7 @@ Deterministic verification rules
 Explainable HTML results + CSV export
 ```
 
-The process-wide EasyOCR reader is initialized once under a lock during startup; the same locked initializer is a safe lazy fallback and never creates a reader per image. A process-wide executor and reader-level semaphore bound concurrent inference to `OCR_MAX_WORKERS`, including work submitted by different users at the same time. The default is 1, so the shared reader processes one image at a time.
+The selected process-wide OCR provider is initialized once under a lock during startup; the same locked initializer is a safe lazy fallback and never creates an engine per image. EasyOCR owns one shared reader, while Tesseract uses the installed local binary. A process-wide executor and semaphore bound both engines to `OCR_MAX_WORKERS`, including work submitted by different users at the same time. The default is 1.
 
 Every image is converted to an owned RGB buffer and reduced to `MAX_OCR_IMAGE_DIMENSION` before OCR. The contrast-enhanced retry and its additional grayscale/OpenCV buffers are created only when `ENABLE_SECOND_OCR_PASS=true`; the default is false for predictable memory use on small Render instances.
 
@@ -125,13 +126,26 @@ Each verification request receives an eight-character request ID. Structured INF
 
 Batch verification remains one synchronous HTTP request. Configurable gated concurrency supports small and moderate batches, but it does not turn 200–300 image reviews into a production job system. Production-scale batches need a durable background queue with controlled workers, progress updates, retries, and resumable results.
 
-Core stack: Python 3.11, FastAPI, Uvicorn, Jinja2, local Bootstrap 5.3, EasyOCR, CPU-only PyTorch in Docker, OpenCV, Pillow, RapidFuzz, Pydantic, and Pytest.
+Core stack: Python 3.11, FastAPI, Uvicorn, Jinja2, local Bootstrap 5.3, EasyOCR, Tesseract/pytesseract, CPU-only PyTorch in Docker, OpenCV, Pillow, RapidFuzz, Pydantic, and Pytest.
 
 ## Why Local OCR
 
-The stakeholder constraints favor explainability, predictable evaluator setup, and operation without hosted ML endpoints. EasyOCR therefore runs inside the application process, while explicit Python rules make every status traceable.
+The stakeholder constraints favor explainability, predictable evaluator setup, and operation without hosted ML endpoints. OCR therefore runs locally, while explicit Python rules make every status traceable.
 
-The Docker build downloads the English EasyOCR weights into `/app/.easyocr`. Embedding them increases image size and build time, but avoids model downloads, outbound inference calls, and model-endpoint failures during evaluator testing. Model files are part of the deployed application image; uploaded label files are not persisted.
+The Docker build downloads the English EasyOCR weights into `/app/.easyocr` and installs Tesseract. Embedding both increases image size and build time, but avoids runtime model downloads, outbound inference calls, and model-endpoint failures. Model files are part of the deployed application image; uploaded label files are not persisted.
+
+## OCR Engine Selection
+
+The app supports two local OCR engines:
+
+- **EasyOCR** is the default for local development and has higher tolerance for difficult label photos.
+- **Tesseract** is lighter and faster on small hosted CPU instances such as Render. Its label-specific path uses sparse-text segmentation, luminance-guided contrast normalization, explicit inversion for very dark artwork, blue-channel adaptive thresholding for dark glare, sharpening, a white border, and conservative deskewing. Filtering remains conservative for pixelated labels because stronger processing reduced measured recognition.
+
+EasyOCR loads PyTorch and its neural model into the application process. That generally provides better tolerance for angled, blurred, decorative, or otherwise difficult photographs, but it also needs substantially more memory and CPU during startup and inference. On low-tier Render plans, those costs increase cold-start time and make memory termination or slow synchronous requests more likely. Tesseract has lower runtime overhead and more predictable resource use, so the deployed Render demo intentionally selects it even though recognition quality may be lower on the hardest artwork. This is a hosting tradeoff, not a claim that Tesseract is universally more accurate.
+
+Set `OCR_ENGINE=tesseract` on Render for resource-constrained hosted evaluation. Set `OCR_ENGINE=easyocr` locally—or on a larger instance—to use the stronger difficult-image engine. Invalid values log a warning and safely fall back to EasyOCR. The selected engine is reported by `/healthz`, shown on every result card, and included in CSV exports.
+
+Neither engine requires an API key, hosted OCR account, or network request at runtime.
 
 ## CSV Batch Format
 
@@ -171,9 +185,9 @@ Selecting beer/malt beverage, wine, or distilled spirits reveals the relevant co
 
 For beverages at or above 0.5% ABV, the checker validates the statutory wording, ordered similarity, required-word coverage, an all-caps `GOVERNMENT WARNING` heading, and warning-specific OCR confidence.
 
-- PASS: near-exact wording and the all-caps heading are detected.
-- NEEDS REVIEW: most wording is present, confidence is low, or capitalization/order is uncertain.
-- FAIL: the warning is missing, materially incomplete, or substantially reworded.
+- PASS: the complete statutory warning matches exactly, including wording, punctuation, and capitalization; OCR line breaks and repeated whitespace are ignored.
+- NEEDS REVIEW: the warning is not exact but at least 75% of its required words are present, or an exact match has low OCR confidence. Missing or non-uppercase heading text is called out for manual review but does not change this ≥75% result to FAIL.
+- FAIL: the warning is missing or has less than 75% required-word coverage. A different failed field still keeps the overall label result at FAIL.
 
 Physical typography—including minimum type size, bold heading, continuous-paragraph layout, and character density—cannot be established reliably without scale metadata and layout analysis. It appears as an informational NEEDS REVIEW row that does not lower an otherwise automated PASS.
 
@@ -201,9 +215,15 @@ pip install -r requirements-test.txt
 pytest
 ```
 
-The 44 automated tests cover normalization, reordered-token coverage, alcohol/proof and volume parsing, CSV and manual-data validation, strict warning behavior, category-specific rules, overall decisions, extraction edge cases, complete upload-to-results requests, browser-facing safeguards, exports, process-wide OCR gating, structured request tracing, memory-conscious preprocessing, health checks, and deployment defaults. HTTP tests disable model startup and inject deterministic OCR output, so the suite is fast and repeatable.
+The standard suite contains 59 fast tests covering normalization, reordered-token coverage, alcohol/proof and volume parsing, CSV and manual-data validation, strict warning behavior and its 75% review boundary, category-specific rules, overall decisions, extraction edge cases, complete upload-to-results requests, browser-facing safeguards, exports, OCR provider selection, Tesseract confidence parsing and preprocessing, process-wide gating, structured request tracing, memory-conscious preprocessing, health checks, and deployment defaults. Three additional opt-in fixture tests execute the real Tesseract binary against clean and difficult generated labels.
 
-Twelve generated label images and three CSV batches live under `tests/resources/sample_data/`. They exercise passing labels, fuzzy matching, missing warnings and origin, numeric mismatches, low contrast, cropping, and skew.
+Run the real Tesseract fixture checks inside the deployment image:
+
+```powershell
+docker run --rm -e PYTHONPATH=/workspace -e RUN_TESSERACT_FIXTURE_TESTS=1 -e MAX_OCR_IMAGE_DIMENSION=1600 -e TESSERACT_PSM=11 -e TESSERACT_DESKEW=true -v "${PWD}:/workspace" -w /workspace --entrypoint python ttb-label-pre-screener:local tests/test_tesseract_fixture_quality.py
+```
+
+Fifty generated label images and three CSV batches live under `tests/resources/sample_data/`: 18 distilled-spirit labels, 16 wine/sake labels, and 16 beer/malt-beverage labels. The set includes clean controls, rule mismatches, and difficult OCR conditions such as torn paper, rotation, blur, dirt, glare, shadows, zoom, cropping, mirroring, inversion, perspective, low resolution, occlusion, dense logos, curved-container shading, and unconventional text placement. `batch_mixed.csv` covers all 50 images; the other two existing CSVs provide smaller clean-to-moderate and severe/failing subsets.
 
 ## Render Deployment
 
@@ -213,6 +233,7 @@ No environment variables are required for the prototype. Optional tuning variabl
 
 | Variable | Default | Purpose |
 | --- | ---: | --- |
+| `OCR_ENGINE` | `easyocr` | Selects `easyocr` or `tesseract` |
 | `OCR_MAX_WORKERS` | `1` | Limits concurrent OCR jobs |
 | `LOG_LEVEL` | `INFO` | Logging level |
 | `MAX_IMAGE_BYTES` | `12582912` | Per-image upload limit |
@@ -222,20 +243,22 @@ No environment variables are required for the prototype. Optional tuning variabl
 | `MAX_OCR_IMAGE_DIMENSION` | `1600` | OCR long-edge resize target |
 | `ENABLE_SECOND_OCR_PASS` | `false` | Enables the enhanced retry for weak OCR |
 | `OCR_GPU` | `false` | Enables GPU OCR if available |
+| `TESSERACT_PSM` | `11` | Sparse-text segmentation mode for label layouts |
+| `TESSERACT_DESKEW` | `true` | Corrects detected skew up to 15 degrees |
 
 `EASYOCR_MODEL_DIR` may also override the model location for a native deployment. Docker already sets it to the model directory embedded during the image build. `PYTHONUNBUFFERED=1` is set by the Dockerfile.
 
-The Render blueprint explicitly pins `OCR_MAX_WORKERS=1`, `MAX_OCR_IMAGE_DIMENSION=1600`, and `ENABLE_SECOND_OCR_PASS=false`. These are conservative optional settings, not required secrets; the same values are already application defaults.
+The Render blueprint uses the recommended hosted settings: `OCR_ENGINE=tesseract`, `OCR_MAX_WORKERS=1`, `MAX_OCR_IMAGE_DIMENSION=1600`, `TESSERACT_PSM=11`, `TESSERACT_DESKEW=true`, and `ENABLE_SECOND_OCR_PASS=false`. Tesseract is selected because low-tier Render plans have limited memory and CPU; avoiding the EasyOCR/PyTorch runtime reduces cold-start pressure, peak memory, and the chance that concurrent inference exhausts the container. Tesseract's lower runtime memory also allows the larger OCR input, which preserves small warning text better than the previous 900 px limit. These are optional settings, not secrets.
 
 1. Push the repository to GitHub.
 2. In Render, choose **New → Blueprint**.
 3. Connect the repository and apply `render.yaml`.
-4. Wait for the image, dependencies, and EasyOCR model to build.
+4. Wait for the image, dependencies, EasyOCR model, and Tesseract package to build.
 5. Confirm `/healthz`, then add the public URL to the Live Demo section.
 
 The deployed Render service is usable immediately after build. Evaluators do not need to provide API keys, configure storage, or set environment variables.
 
-Docker and Render both use one Uvicorn worker (`--workers 1`). A Render Starter instance is recommended because EasyOCR and PyTorch can exceed the memory available on smaller services; it is an operational recommendation, not an application requirement. The service needs no secret, database, persistent disk, or runtime model download.
+Docker and Render both use one Uvicorn worker (`--workers 1`). Tesseract is recommended on Render because it avoids loading EasyOCR/PyTorch into runtime memory. A Starter instance remains an operational recommendation rather than an application requirement. The service needs no secret, database, persistent disk, or runtime model download.
 
 The same container can later be evaluated for Azure Container Apps or Azure App Service. Federal production deployment would still require agency review for identity, audit, retention, accessibility, and security controls.
 
@@ -245,7 +268,7 @@ The same container can later be evaluated for Azure Container Apps or Azure App 
 - Result previews are bounded JPEG data URLs returned in the HTML response and retained only in the browser page.
 - OCR text and overrides are not stored server-side.
 - Request traces retain only identifiers, timings, counts, dimensions, and memory measurements—not OCR text, images, previews, or arrays.
-- The container includes application code, dependencies, and EasyOCR weights; those model files are not user data.
+- The container includes application code, dependencies, EasyOCR weights, and Tesseract language data; those model files are not user data.
 - Image type, decoded format, size, total request size, and pixel count are validated before OCR.
 - No live COLA access, authentication, approval action, or external inference service is included.
 
@@ -255,6 +278,7 @@ The same container can later be evaluated for Azure Container Apps or Azure App 
 - Deterministic rules favor auditability over broad generative interpretation.
 - Expected-value-guided extraction works well for comparison but is not a general document-understanding system.
 - One OCR worker, 1600 px inputs, and no enhanced retry are the safe defaults for predictable memory usage. Operators should load-test before raising these limits.
+- Render uses Tesseract to fit low-tier memory and CPU constraints; local or better-provisioned deployments can choose EasyOCR for stronger difficult-photo tolerance.
 - PASS, FAIL, and NEEDS REVIEW are pre-screening outcomes; a human agent remains the decision-maker.
 
 ## Known Limitations
@@ -272,5 +296,8 @@ The same container can later be evaluated for Azure Container Apps or Azure App 
 2. Add authenticated COLA application lookup and role-based access.
 3. Add structured audit events, retention controls, and deployment monitoring.
 4. Expand layout-aware OCR for multi-panel labels and physical typography checks.
-5. Calibrate field thresholds against a representative reviewed-label corpus.
-6. Complete accessibility and agency security testing for the target hosting environment.
+5. Add an AI-assisted second-review stage for OCR-generated FAIL and NEEDS REVIEW cases. A constrained model could compare the image, OCR text, expected application values, and deterministic rule evidence; suggest likely OCR corrections; and explain why a case should remain escalated. It should not silently override statutory rules or issue an approval—the human reviewer and auditable rule result remain authoritative.
+
+AI review was intentionally excluded from this take-home POC because local OCR and deterministic rules can handle the majority of expected labels faster and more cheaply, without per-request model cost or additional infrastructure. Adding AI to every review would introduce API credentials or a larger local model, additional latency and operational complexity, new handling requirements for uploaded label data, nondeterministic outputs, hallucination risk, and a separate evaluation problem for reviewer accuracy and bias. The assignment is therefore deployable without secrets or hosted inference and demonstrates a traceable baseline first. A production follow-up could reserve an agency-approved hosted or local model for OCR-generated FAIL and NEEDS REVIEW cases, behind explicit confidence thresholds, redaction and retention controls, prompt/version audit logs, and human confirmation.
+6. Calibrate field thresholds against a representative reviewed-label corpus.
+7. Complete accessibility and agency security testing for the target hosting environment.

@@ -1,6 +1,7 @@
 file_name,brand_name,class_type,alcohol_content,net_contents,bottler_name_address,country_of_origin,imported
 old_tom_distillery.png,OLD TOM DISTILLERY,Kentucky Straight Bourbon Whiskey,45% Alc./Vol. (90 Proof),750 mL,"Old Tom Distillery, Louisville, KY",,false
 stones_throw_case_variation.png,Stone's Throw,Kentucky Straight Bourbon Whiskey,45% Alc./Vol. (90 Proof),750 mL,"Stone & Throw Distillery, Frankfort, KY",,false
+casa_azul_tequila_import.png,CASA AZUL,Tequila,40% Alc./Vol.,750 mL,"Casa Azul Imports, Austin, TX",Mexico,true
 red_ridge_missing_warning.png,RED RIDGE DISTILLING,Rye Whiskey,45% Alc./Vol. (90 Proof),750 mL,"Red Ridge Distilling Co., Asheville, NC",,false
 north_point_wrong_abv.png,NORTH POINT VODKA,Vodka,45% Alc./Vol.,750 mL,"North Point Spirits, Portland, OR",,false
 sol_y_mar_missing_country.png,SOL Y MAR,Tequila,40% Alc./Vol.,750 mL,"Sol Y Mar Imports, Miami, FL",Mexico,true
@@ -10,3 +11,41 @@ hilltop_wrong_net_contents.png,HILLTOP GIN,Gin,40% Alc./Vol.,750 mL,"Hilltop Dis
 pine_trail_beer.png,PINE TRAIL IPA,India Pale Ale,6.5% Alc./Vol.,12 FL. OZ. (355 mL),"Pine Trail Brewing Co., Bend, OR",,false
 laurel_ridge_wine.png,LAUREL RIDGE,Merlot,13.5% Alc./Vol.,750 mL,"Laurel Ridge Wines, Healdsburg, CA",,false
 bayview_skewed_angle.png,BAYVIEW SPICED RUM,Spiced Rum,35% Alc./Vol.,750 mL,"Bayview Spirits Co., San Diego, CA",,false
+ember_cask_torn_bourbon.png,EMBER CASK,Straight Bourbon Whiskey,47% Alc./Vol. (94 Proof),750 mL,"Distilled and Bottled by Ember Cask Co., Lexington, KY",,false
+midnight_vodka_blurry.png,MIDNIGHT CURRENT,Vodka,40% Alc./Vol. (80 Proof),1 L,"Bottled by Midnight Current Spirits, Detroit, MI",,false
+copper_fox_rotated_left.png,COPPER FOX,American Single Malt Whiskey,46% Alc./Vol. (92 Proof),750 mL,"Distilled by Copper Fox Works, Santa Fe, NM",,false
+atlas_gin_zoomed_out.png,ATLAS NORTH,London Dry Gin,43% Alc./Vol. (86 Proof),750 mL,"Distilled and Bottled by Atlas North, Duluth, MN",,false
+lunar_rum_dirty.png,LUNAR TIDE,Dark Rum,42% Alc./Vol. (84 Proof),750 mL,"Bottled by Lunar Tide Rum Co., Tampa, FL",,false
+jade_dragon_flipped.png,JADE DRAGON,Rice Spirit,38% Alc./Vol. (76 Proof),700 mL,"Imported by Jade Dragon Imports, Seattle, WA",China,true
+crooked_still_weird_layout.png,CROOKED STILL,Corn Whiskey,50% Alc./Vol. (100 Proof),750 mL,"Distilled by Crooked Still House, Knoxville, TN",,false
+prairie_moon_glare.png,PRAIRIE MOON,Wheat Whiskey,45% Alc./Vol. (90 Proof),750 mL,"Bottled by Prairie Moon Distillers, Wichita, KS",,false
+black_anchor_cropped_side.png,BLACK ANCHOR,Navy Strength Gin,57% Alc./Vol. (114 Proof),750 mL,"Black Anchor Spirits, Norfolk, VA",,false
+summit_brandy_perspective.png,SUMMIT HOUSE,French Brandy,40% Alc./Vol. (80 Proof),750 mL,"Imported by Summit House Imports, Boston, MA",France,true
+frost_line_upside_down.png,FROST LINE,Riesling,12% Alc./Vol.,750 mL,"Produced by Frost Line Cellars, Traverse City, MI",,false
+wild_rose_water_stain.png,WILD ROSE,Rosé Wine,12.5% Alc./Vol.,750 mL,"Produced and Bottled by Wild Rose Winery, Walla Walla, WA",,false
+canyon_echo_zoomed_in.png,CANYON ECHO,Syrah,14.1% Alc./Vol.,750 mL,"Produced by Canyon Echo Vineyards, Paso Robles, CA",,false
+blue_door_vertical_text.png,BLUE DOOR,Pinot Gris,12.8% Alc./Vol.,750 mL,"Produced by Blue Door Wines, McMinnville, OR",,false
+orchard_lane_low_resolution.png,ORCHARD LANE,Apple Wine,11% Alc./Vol.,750 mL,"Produced by Orchard Lane Winery, Geneva, NY",,false
+granite_peak_shadow.png,GRANITE PEAK,Cabernet Franc,13.9% Alc./Vol.,750 mL,"Produced by Granite Peak Cellars, Palisade, CO",,false
+paper_crane_logo_heavy.png,PAPER CRANE,Sake,15% Alc./Vol.,720 mL,"Imported by Paper Crane Beverage Co., Los Angeles, CA",Japan,true
+mossy_bank_crumpled.png,MOSSY BANK,Sauvignon Blanc,13% Alc./Vol.,750 mL,"Produced by Mossy Bank Estate, Charlottesville, VA",,false
+sunroom_overexposed.png,SUNROOM,Chenin Blanc,12.2% Alc./Vol.,750 mL,"Produced by Sunroom Vineyards, Clarksburg, CA",,false
+broken_compass_cropped_top.png,BROKEN COMPASS,Red Blend,14% Alc./Vol.,750 mL,"Produced by Broken Compass Wines, Yakima, WA",,false
+night_jar_dark.png,NIGHT JAR,Petite Sirah,14.5% Alc./Vol.,750 mL,"Produced by Night Jar Cellars, Lodi, CA",,false
+riverbend_noisy.png,RIVERBEND,Muscadine Wine,11.5% Alc./Vol.,750 mL,"Produced by Riverbend Winery, Macon, GA",,false
+golden_hour_occluded.png,GOLDEN HOUR,Zinfandel,14.2% Alc./Vol.,750 mL,"Golden Hour Wines, Sonoma, CA",,false
+iron_hop_rotated_right.png,IRON HOP,Double India Pale Ale,8.2% Alc./Vol.,16 FL. OZ. (473 mL),"Brewed and Canned by Iron Hop Brewing, Pittsburgh, PA",,false
+cloudline_motion_blur.png,CLOUDLINE,Hazy Pale Ale,5.8% Alc./Vol.,12 FL. OZ. (355 mL),"Brewed by Cloudline Brewing, Portland, ME",,false
+tiny_ale_zoomed_out.png,TINY ALE,Session Ale,3.8% Alc./Vol.,12 FL. OZ. (355 mL),"Brewed by Tiny Ale Works, Madison, WI",,false
+festival_lager_weird_layout.png,FESTIVAL RESERVE,American Lager,4.7% Alc./Vol.,12 FL. OZ. (355 mL),"Festival Brewing Co., Milwaukee, WI",,false
+brickhouse_dirty.png,BRICKHOUSE,Amber Ale,5.4% Alc./Vol.,12 FL. OZ. (355 mL),"Brewed by Brickhouse Ales, Richmond, VA",,false
+neon_stag_glare.png,NEON STAG,Pilsner,5% Alc./Vol.,16 FL. OZ. (473 mL),"Brewed and Canned by Neon Stag Brewing, Austin, TX",,false
+coastal_pilsner_perspective.png,COASTAL CURRENT,German-Style Pilsner,5.1% Alc./Vol.,12 FL. OZ. (355 mL),"Brewed by Coastal Current Brewing, Charleston, SC",,false
+upside_down_stout.png,NORTH STAR STOUT,Oatmeal Stout,6.2% Alc./Vol.,12 FL. OZ. (355 mL),"Brewed by North Star Brewing, Fargo, ND",,false
+torn_ticket_saison.png,TORN TICKET,Farmhouse Saison,6.7% Alc./Vol.,750 mL,"Brewed and Bottled by Torn Ticket Farm Brewery, Burlington, VT",,false
+pixel_porter_low_resolution.png,PIXEL PORTER,Robust Porter,6% Alc./Vol.,12 FL. OZ. (355 mL),"Brewed by Pixel Porter Brewing, San Jose, CA",,false
+sidecrop_amber.png,SIDECROP,American Amber Ale,5.6% Alc./Vol.,16 FL. OZ. (473 mL),"Brewed by Sidecrop Brewing, Boise, ID",,false
+mirror_ipa_flipped.png,MIRROR IPA,India Pale Ale,7.1% Alc./Vol.,12 FL. OZ. (355 mL),"Brewed by Mirror Lake Brewing, Reno, NV",,false
+curved_can_pale_ale.png,CURVED CAN,Pale Ale,5.5% Alc./Vol.,16 FL. OZ. (473 mL),"Brewed and Canned by Curved Can Brewing, Columbus, OH",,false
+mudtrack_brown_ale.png,MUDTRACK,Brown Ale,5.9% Alc./Vol.,12 FL. OZ. (355 mL),"Brewed by Mudtrack Brewing, Little Rock, AR",,false
+half_label_wheat_cropped.png,HALF LABEL,American Wheat Ale,4.9% Alc./Vol.,12 FL. OZ. (355 mL),"Brewed by Half Label Brewing, Omaha, NE",,false
