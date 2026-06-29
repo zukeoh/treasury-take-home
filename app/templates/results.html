@@ -1,0 +1,137 @@
+{% extends "base.html" %}
+{% block title %}Review Results · {{ app_name }}{% endblock %}
+{% block content %}
+<section class="results-hero">
+  <div class="container-xl">
+    <div class="d-flex flex-column flex-lg-row justify-content-between align-items-lg-end gap-4">
+      <div><p class="eyebrow">Pre-screen complete</p><h1>Review Results</h1><p>{{ results|length }} label{% if results|length != 1 %}s{% endif %} processed in {{ '%.1f'|format(batch_ms / 1000) }} seconds.</p></div>
+      <div class="result-page-actions">
+        <button class="btn btn-warning btn-lg" type="button" id="export-results">Export Results</button>
+        <a class="btn btn-light btn-lg" href="/" id="start-another-review">← Start Another Review</a>
+      </div>
+    </div>
+    <section class="result-guidance" aria-labelledby="result-guidance-title">
+      <div class="result-guidance-heading">
+        <h2 id="result-guidance-title">How To Use These Results</h2>
+        <p>These outcomes support pre-screening. Human agents make the final determination.</p>
+        <p class="override-guidance">To override an image's overall outcome, choose a different state under <strong>Final Result</strong> on its card. Field-level findings remain unchanged, and the export records the automated result, final result, and whether it was overwritten.</p>
+      </div>
+      <div class="guidance-grid">
+        <div class="guidance-item guidance-pass"><strong>PASS</strong><span>All automated required checks passed against the entered application data.</span></div>
+        <div class="guidance-item guidance-fail"><strong>FAIL</strong><span>At least one required field has a material mismatch or was not detected.</span></div>
+        <div class="guidance-item guidance-review"><strong>NEEDS REVIEW</strong><span>OCR confidence or a rule was inconclusive and requires human review.</span></div>
+      </div>
+    </section>
+    <div class="summary-strip" aria-label="Filter results by outcome or override status">
+      <button class="summary-filter is-active" type="button" data-result-filter="all" aria-pressed="true"><strong>{{ results|length }}</strong><span>Total</span></button>
+      <button class="summary-filter summary-pass" type="button" data-result-filter="PASS" aria-pressed="false"><strong data-count-status="PASS">{{ counts['PASS'] }}</strong><span>Pass</span></button>
+      <button class="summary-filter summary-fail" type="button" data-result-filter="FAIL" aria-pressed="false"><strong data-count-status="FAIL">{{ counts['FAIL'] }}</strong><span>Fail</span></button>
+      <button class="summary-filter summary-review" type="button" data-result-filter="NEEDS REVIEW" aria-pressed="false"><strong data-count-status="NEEDS REVIEW">{{ counts['NEEDS REVIEW'] }}</strong><span>Needs Review</span></button>
+      <button class="summary-filter summary-overwritten" type="button" data-result-filter="overwritten" aria-pressed="false"><strong data-count-overwritten>0</strong><span>Overwritten</span></button>
+    </div>
+  </div>
+</section>
+
+<section class="container-xl results-list">
+  <div class="results-toolbar">
+    <p class="filter-status" id="filter-status" aria-live="polite">Showing all {{ results|length }} results.</p>
+    <button class="btn btn-outline-secondary" type="button" id="toggle-all-results">Collapse All Details</button>
+  </div>
+
+  <div id="result-cards">
+    {% for result in results %}
+    {% set status_class = result.status.value|lower|replace(' ', '-') %}
+    <article class="result-card result-{{ status_class }}" data-result-status="{{ result.status.value }}" data-original-status="{{ result.status.value }}" data-file-name="{{ result.file_name }}" data-overwritten="false">
+      <header class="result-header">
+        <div class="result-title">
+          {% if result.image_preview_url %}
+          <button class="result-image-button" type="button" data-image-open aria-label="Open Large Preview Of {{ result.file_name }}">
+            <img class="result-thumbnail" src="{{ result.image_preview_url }}" alt="Preview of {{ result.file_name }}">
+            <span class="image-zoom-hint" aria-hidden="true">↗</span>
+          </button>
+          {% else %}
+          <span class="result-thumbnail result-thumbnail-placeholder" aria-hidden="true">▧</span>
+          {% endif %}
+          <span class="status-icon" data-status-icon aria-hidden="true">{% if result.status.value == 'PASS' %}✓{% elif result.status.value == 'FAIL' %}×{% else %}!{% endif %}</span>
+          <div class="result-title-copy">
+            <span class="result-position" data-result-position>Result {{ loop.index }} Of {{ results|length }}</span>
+            <h2>{{ result.file_name }}</h2>
+            <span>{{ result.processing_time_ms }} ms processing time{% if result.confidence %} · {{ '%.0f'|format(result.confidence * 100) }}% average OCR confidence{% endif %}</span>
+          </div>
+        </div>
+        <div class="result-header-actions">
+          <div class="result-override">
+            <span class="result-override-label">Final Result</span>
+            <div class="result-override-options" role="group" aria-label="Override Overall Result For {{ result.file_name }}">
+              {% for override_status in ['PASS', 'NEEDS REVIEW', 'FAIL'] %}
+              {% set override_class = override_status|lower|replace(' ', '-') %}
+              <button class="result-override-button status-{{ override_class }}{% if override_status == result.status.value %} is-active{% endif %}" type="button" data-override-status="{{ override_status }}" aria-pressed="{{ 'true' if override_status == result.status.value else 'false' }}">{{ override_status|title }}</button>
+              {% endfor %}
+            </div>
+            <span class="result-override-note" data-override-note hidden></span>
+          </div>
+          <button class="result-collapse-button" type="button" data-result-toggle aria-expanded="true" aria-controls="result-details-{{ loop.index }}">Collapse Details</button>
+        </div>
+      </header>
+
+      <div id="result-details-{{ loop.index }}" data-result-details>
+        {% if result.error %}
+        <div class="result-error"><strong>Action Needed:</strong> {{ result.error }}</div>
+        {% endif %}
+
+        {% if result.fields %}
+        <div class="table-responsive">
+          <table class="table result-table">
+            <caption class="visually-hidden">Field verification for {{ result.file_name }}</caption>
+            <thead><tr><th scope="col">Field</th><th scope="col">Expected</th><th scope="col">Detected</th><th scope="col">Result</th><th scope="col">Explanation</th><th scope="col">Requirement &amp; Source</th></tr></thead>
+            <tbody>
+              {% for field in result.fields %}
+              {% set field_class = field.status.value|lower|replace(' ', '-') %}
+              <tr>
+                <th scope="row">{{ field.field }}{% if not field.affects_overall %}<small>Informational</small>{% endif %}</th>
+                <td>{{ field.expected if field.expected is not none else '—' }}</td>
+                <td>{{ field.detected if field.detected is not none else '—' }}</td>
+                <td><span class="mini-status mini-{{ field_class }}">{{ field.status.value }}</span></td>
+                <td>{{ field.explanation }}</td>
+                <td class="source-cell">
+                  <span>{{ field.requirement_basis }}</span>
+                  {% if field.source_url %}
+                  <a href="{{ field.source_url }}" target="_blank" rel="noopener noreferrer">{{ field.source_name }}</a>
+                  {% else %}
+                  <small>Source depends on beverage classification.</small>
+                  {% endif %}
+                </td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        {% endif %}
+
+        <details class="ocr-details">
+          <summary>View Extracted OCR Text</summary>
+          {% if result.extracted_text %}<pre>{{ result.extracted_text }}</pre>{% else %}<p>No OCR text available for this image.</p>{% endif %}
+        </details>
+      </div>
+    </article>
+    {% endfor %}
+  </div>
+  <div class="scroll-top-wrap"><button class="btn btn-primary" type="button" id="scroll-to-top">↑ Scroll To Top</button></div>
+</section>
+
+<dialog class="image-viewer" id="image-viewer" aria-labelledby="image-viewer-title">
+  <div class="image-viewer-panel">
+    <header class="image-viewer-header">
+      <h2 id="image-viewer-title">Label Image</h2>
+      <button class="image-viewer-close" type="button" id="image-viewer-close" aria-label="Close Image Viewer">×</button>
+    </header>
+    <div class="image-viewer-stage"><img id="image-viewer-image" alt=""></div>
+    <p>Click outside the image, press Escape, or use × to close.</p>
+  </div>
+</dialog>
+
+<script id="export-data" type="application/json">{{ {"columns": export_columns, "rows": export_rows}|tojson }}</script>
+{% endblock %}
+{% block scripts %}
+<script src="{{ url_for('static', path='results.js') }}" defer></script>
+{% endblock %}

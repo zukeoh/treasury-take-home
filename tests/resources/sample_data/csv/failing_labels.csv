@@ -1,0 +1,5 @@
+file_name,brand_name,class_type,alcohol_content,net_contents,bottler_name_address,country_of_origin,imported
+red_ridge_missing_warning.png,RED RIDGE DISTILLING,Rye Whiskey,45% Alc./Vol. (90 Proof),750 mL,"Red Ridge Distilling Co., Asheville, NC",,false
+north_point_wrong_abv.png,NORTH POINT VODKA,Vodka,45% Alc./Vol.,750 mL,"North Point Spirits, Portland, OR",,false
+sol_y_mar_missing_country.png,SOL Y MAR,Tequila,40% Alc./Vol.,750 mL,"Sol Y Mar Imports, Miami, FL",Mexico,true
+hilltop_wrong_net_contents.png,HILLTOP GIN,Gin,40% Alc./Vol.,750 mL,"Hilltop Distillery, Denver, CO",,false

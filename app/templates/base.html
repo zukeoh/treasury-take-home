@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Local, explainable pre-screening for alcohol beverage label applications.">
+  <title>{% block title %}{{ app_name }}{% endblock %}</title>
+  <script>
+    (() => {
+      try {
+        const saved = localStorage.getItem("ttb-color-theme");
+        const theme = saved === "dark" || saved === "light"
+          ? saved
+          : (window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
+        document.documentElement.dataset.theme = theme;
+      } catch (error) {
+        document.documentElement.dataset.theme = "light";
+      }
+    })();
+  </script>
+  <link rel="stylesheet" href="{{ url_for('static', path='vendor/bootstrap.min.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', path='styles.css') }}">
+</head>
+<body>
+  <a class="skip-link" href="#main-content">Skip to main content</a>
+  <header class="site-header">
+    <div class="container-xl d-flex align-items-center justify-content-between gap-3">
+      <a class="brand-lockup" href="/" aria-label="TTB Pre-Screener Home">
+        <span class="brand-seal" aria-hidden="true">TTB</span>
+        <span>
+          <strong>Alcohol Label Pre-Screener</strong>
+        </span>
+      </a>
+      <div class="header-actions">
+        <button class="theme-toggle" type="button" id="theme-toggle" aria-label="Switch to Dark Mode" title="Switch to Dark Mode">
+          <span class="theme-icon theme-icon-moon" aria-hidden="true">☾</span>
+          <span class="theme-icon theme-icon-sun" aria-hidden="true">☀</span>
+        </button>
+        <span class="prototype-pill">Prototype</span>
+      </div>
+    </div>
+  </header>
+  <main id="main-content">
+    {% block content %}{% endblock %}
+  </main>
+  <footer class="site-footer">
+    <div class="container-xl">
+      <nav class="footer-references" aria-label="Official TTB references">
+        <strong class="footer-reference-title">References</strong>
+        <div class="footer-reference-groups">
+          {% for category, references in ttb_reference_groups %}
+          <section class="footer-reference-group">
+            <span>{{ category }}</span>
+            {% for reference in references %}
+            <a href="{{ reference.url }}" target="_blank" rel="noopener noreferrer">{% if 'health-warning' in reference.key %}Health Warning{% else %}Labeling Requirements{% endif %}</a>
+            {% endfor %}
+          </section>
+          {% endfor %}
+        </div>
+      </nav>
+    </div>
+  </footer>
+  <script src="{{ url_for('static', path='theme.js') }}" defer></script>
+  {% block scripts %}{% endblock %}
+</body>
+</html>

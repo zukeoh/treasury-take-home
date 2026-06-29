@@ -1,0 +1,199 @@
+{% extends "base.html" %}
+{% block title %}Start A Review · {{ app_name }}{% endblock %}
+{% block content %}
+<section class="container-xl review-layout">
+  <h1 class="page-title">Start A Label Review</h1>
+  {% if error %}
+  <div class="alert alert-danger d-flex gap-3 align-items-start" role="alert" tabindex="-1" id="form-error">
+    <span class="alert-symbol" aria-hidden="true">!</span>
+    <div><strong>We Need One Correction</strong><div>{{ error }}</div></div>
+  </div>
+  {% endif %}
+
+  <form action="/verify" method="post" enctype="multipart/form-data" id="review-form">
+    <div class="step-card">
+      <div class="step-heading">
+        <span class="step-number">1</span>
+        <div><h2>Add Label Images</h2><p>Add images one at a time or choose a full batch. JPEG and PNG files only.</p></div>
+      </div>
+      <label class="upload-zone" for="images" id="drop-zone" tabindex="0">
+        <span class="upload-symbol" aria-hidden="true">↑</span>
+        <strong>Drop Label Images Here</strong>
+        <span>or <u>Browse Files</u> from your computer</span>
+        <small>Up to {{ max_images }} images · {{ max_image_mb }} MB each</small>
+        <input class="visually-hidden" type="file" id="images" name="images" accept="image/jpeg,image/png,.jpg,.jpeg,.png" data-max-images="{{ max_images }}" multiple required>
+      </label>
+      <div class="file-summary" id="file-summary" aria-live="polite">No images selected</div>
+      <div class="image-list" id="image-list" aria-label="Selected label images"></div>
+    </div>
+
+    <div class="step-card application-data-step is-locked" id="application-data-step" aria-disabled="true" inert>
+      <div class="step-heading">
+        <span class="step-number">2</span>
+        <div><h2>Add Application Data</h2><p>Enter expected values for each image, or match a batch with CSV.</p></div>
+      </div>
+      <div class="step-lock-notice">Add at least one label image above to continue.</div>
+
+      <div class="source-switch" role="group" aria-label="Application data source">
+        <button class="source-option active" type="button" data-source="manual" aria-pressed="true">
+          <strong>Enter Manually</strong><span>Best for one or a few labels</span>
+        </button>
+        <button class="source-option" type="button" data-source="csv" aria-pressed="false">
+          <strong>Upload Batch CSV</strong><span>Match each image by file name</span>
+        </button>
+      </div>
+
+      <section id="csv-panel" class="data-panel" hidden>
+        <label class="form-label" for="application_csv">Application CSV</label>
+        <input class="form-control form-control-lg" type="file" id="application_csv" name="application_csv" accept=".csv,text/csv">
+        <div class="form-hint d-flex flex-wrap justify-content-between gap-2">
+          <span>One row per image. The <strong>file_name</strong> value must match the uploaded image.</span>
+          <a href="/sample.csv">Download Sample CSV</a>
+        </div>
+        <p class="csv-columns"><strong>Required columns:</strong> file_name, brand_name, product_type, abv, net_contents, producer, country_of_origin. <strong>Optional:</strong> beverage_type and beverage-specific fields shown in the sample.</p>
+      </section>
+
+      <section id="manual-panel" class="data-panel">
+        <input type="hidden" id="manual_applications" name="manual_applications">
+        <div id="manual-empty" class="manual-empty">Add label images first. One application section will appear for each file name.</div>
+        <div id="manual-applications" class="manual-applications" aria-live="polite"></div>
+      </section>
+    </div>
+
+    <div class="submit-actions">
+      <button class="btn btn-primary btn-lg verify-button" type="submit" id="verify-button">
+        <span>Verify Labels</span><span aria-hidden="true">→</span>
+      </button>
+    </div>
+  </form>
+</section>
+
+<template id="image-item-template">
+  <article class="image-item">
+    <img class="image-thumbnail" data-image-thumbnail alt="">
+    <div class="image-item-details">
+      <strong data-image-name></strong>
+      <span data-image-size></span>
+    </div>
+    <button class="remove-image" type="button" data-remove-file>
+      <span aria-hidden="true">×</span>
+    </button>
+  </article>
+</template>
+
+<template id="review-loading-template">
+  <section class="results-hero">
+    <div class="container-xl">
+      <p class="eyebrow">Pre-screen in progress</p>
+      <h1>Review Results</h1>
+      <p data-loading-count>Preparing label review…</p>
+    </div>
+  </section>
+  <section class="container-xl results-list">
+    <div class="processing-card" role="status" aria-live="polite">
+      <span class="processing-spinner" aria-hidden="true"></span>
+      <h2>Reading and Verifying Labels</h2>
+      <p>OCR and compliance checks are running. Results will appear here automatically.</p>
+      <p class="processing-estimate" data-loading-estimate>Estimated completion time is being calculated.</p>
+      <div class="processing-track" aria-hidden="true"><span data-progress-fill></span></div>
+      <p class="processing-elapsed" data-loading-elapsed>Elapsed time: 0 seconds</p>
+    </div>
+  </section>
+</template>
+
+<template id="manual-application-template">
+  <article class="manual-application">
+    <header class="manual-application-heading">
+      <img class="application-thumbnail" data-application-thumbnail alt="">
+      <div>
+        <span>Application Data For</span>
+        <h3 data-file-title></h3>
+      </div>
+    </header>
+    <div class="row g-4">
+      <div class="col-12">
+        <label class="form-label" data-label-for="beverage_type">Alcohol label type <span aria-hidden="true">*</span></label>
+        <select class="form-select" data-field="beverage_type" required>
+          <option value="">Select label type</option>
+          <option value="beer_malt">Beer / malt beverage</option>
+          <option value="wine">Wine</option>
+          <option value="distilled_spirits">Distilled spirits</option>
+        </select>
+        <div class="form-hint">The selection reveals additional fields that apply only to that beverage category.</div>
+      </div>
+      <div class="col-md-6">
+        <label class="form-label" data-label-for="brand_name">Brand name <span aria-hidden="true">*</span></label>
+        <input class="form-control" data-field="brand_name" placeholder="OLD TOM DISTILLERY" required>
+      </div>
+      <div class="col-md-6">
+        <label class="form-label" data-label-for="class_type">Class / type <span aria-hidden="true">*</span></label>
+        <input class="form-control" data-field="class_type" placeholder="Kentucky Straight Bourbon Whiskey" required>
+      </div>
+      <div class="col-md-6">
+        <label class="form-label" data-label-for="alcohol_content">Alcohol content <span aria-hidden="true">*</span></label>
+        <input class="form-control" data-field="alcohol_content" placeholder="45% Alc./Vol. (90 Proof)" required>
+      </div>
+      <div class="col-md-6">
+        <label class="form-label" data-label-for="net_contents">Net contents <span aria-hidden="true">*</span></label>
+        <input class="form-control" data-field="net_contents" placeholder="750 mL" required>
+      </div>
+      <div class="col-12">
+        <label class="form-label" data-label-for="bottler_name_address">Bottler / producer name and address <span aria-hidden="true">*</span></label>
+        <input class="form-control" data-field="bottler_name_address" placeholder="Old Tom Distillery, Louisville, KY" required>
+      </div>
+
+      <div class="col-12 beverage-fields" data-beverage-section="beer_malt" hidden>
+        <h4>Beer / Malt Beverage Fields</h4>
+        <label class="form-label" data-label-for="beer_special_disclosure">Special disclosure <span class="optional-label">When applicable</span></label>
+        <input class="form-control" data-field="beer_special_disclosure" placeholder="Contains sulfites, aspartame, or color additive statement" disabled>
+        <div class="form-hint">Enter the expected statement when ingredients or formulation make one required.</div>
+      </div>
+
+      <div class="col-12 beverage-fields" data-beverage-section="wine" hidden>
+        <h4>Wine Fields</h4>
+        <div class="row g-3">
+          <div class="col-md-6">
+            <label class="form-label" data-label-for="wine_appellation">Appellation of origin <span class="optional-label">When required</span></label>
+            <input class="form-control" data-field="wine_appellation" placeholder="Napa Valley" disabled>
+          </div>
+          <div class="col-md-6">
+            <label class="form-label" data-label-for="wine_sulfite_declaration">Sulfite declaration <span class="optional-label">When applicable</span></label>
+            <input class="form-control" data-field="wine_sulfite_declaration" placeholder="Contains sulfites" disabled>
+          </div>
+        </div>
+      </div>
+
+      <div class="col-12 beverage-fields" data-beverage-section="distilled_spirits" hidden>
+        <h4>Distilled Spirits Fields</h4>
+        <div class="row g-3">
+          <div class="col-md-6">
+            <label class="form-label" data-label-for="spirits_age_statement">Age statement <span class="optional-label">When required</span></label>
+            <input class="form-control" data-field="spirits_age_statement" placeholder="Aged 4 years" disabled>
+          </div>
+          <div class="col-md-6">
+            <label class="form-label" data-label-for="spirits_commodity_statement">Commodity / composition statement <span class="optional-label">When applicable</span></label>
+            <input class="form-control" data-field="spirits_commodity_statement" placeholder="Distilled from 100% grain" disabled>
+          </div>
+        </div>
+      </div>
+
+      <div class="col-12">
+        <div class="import-row">
+          <div class="form-check">
+            <input class="form-check-input" type="checkbox" data-field="imported">
+            <label class="form-check-label" data-label-for="imported"><strong>Imported product</strong></label>
+          </div>
+          <div class="country-wrap is-disabled" data-country-wrap>
+            <label class="form-label" data-label-for="country_of_origin">Country of origin <span aria-hidden="true">*</span></label>
+            <input class="form-control" data-field="country_of_origin" placeholder="Mexico" disabled>
+            <div class="form-hint" data-imported-help>Check Imported product to enter a country.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </article>
+</template>
+{% endblock %}
+{% block scripts %}
+<script src="{{ url_for('static', path='app.js') }}" defer></script>
+{% endblock %}

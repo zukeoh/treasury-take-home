@@ -1,0 +1,28 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+.venv/
+venv/
+.testdeps/
+.server-*.log
+
+# EasyOCR model cache (models are embedded into the Docker image at build time)
+.EasyOCR/
+.easyocr/
+
+# Environment and editor files
+.env
+.env.*
+!.env.example
+.idea/
+.vscode/
+*.swp
+
+# OS files
+.DS_Store
+Thumbs.db

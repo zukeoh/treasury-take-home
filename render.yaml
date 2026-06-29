@@ -1,0 +1,17 @@
+services:
+  - type: web
+    name: ttb-label-pre-screener
+    runtime: docker
+    plan: starter
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: EASYOCR_MODEL_DIR
+        value: /app/.easyocr
+      - key: OCR_GPU
+        value: "false"
+      - key: MAX_IMAGE_BYTES
+        value: "12582912"
+      - key: MAX_TOTAL_BYTES
+        value: "104857600"
+
