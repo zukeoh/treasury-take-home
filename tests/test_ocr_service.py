@@ -88,7 +88,7 @@ def test_second_pass_and_enhanced_buffer_are_disabled_by_default() -> None:
 
     result = service.extract(prepared)
 
-    assert config.OCR_MAX_WORKERS == 1
+    assert config.OCR_MAX_WORKERS == 2
     assert config.MAX_OCR_IMAGE_DIMENSION == 1600
     assert config.ENABLE_SECOND_OCR_PASS is False
     assert max(prepared.width, prepared.height) == 1600
