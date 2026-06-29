@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -19,23 +20,35 @@ from app.extraction_service import extract_fields
 from app.image_service import ImageValidationError, create_result_preview_data_url, prepare_image
 from app.manual_service import ManualValidationError, parse_manual_applications
 from app.models import ApplicationData, LabelResult, Status
-from app.ocr_service import OcrUnavailableError, ocr_service
+from app.ocr_service import OcrService, OcrUnavailableError, ocr_service
 from app.references import TTB_REFERENCE_GROUPS
 from app.verification_service import unreadable_fields, verify_application
 
 
 logger = logging.getLogger(__name__)
+logger.setLevel(config.LOG_LEVEL)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    if not config.SKIP_OCR_INIT:
-        try:
-            await asyncio.to_thread(ocr_service.initialize)
-        except OcrUnavailableError:
-            logger.exception("Local OCR initialization failed")
+    # One process-wide executor gates OCR across concurrent requests. The OCR
+    # service has a second boundary-level semaphore to protect the shared reader.
+    executor = ThreadPoolExecutor(
+        max_workers=config.OCR_MAX_WORKERS,
+        thread_name_prefix="ttb-ocr",
+    )
+    app.state.ocr_executor = executor
     app.state.ocr_service = ocr_service
-    yield
+    try:
+        if not config.SKIP_OCR_INIT:
+            try:
+                loop = asyncio.get_running_loop()
+                await loop.run_in_executor(executor, ocr_service.initialize)
+            except OcrUnavailableError:
+                logger.exception("Local OCR initialization failed")
+        yield
+    finally:
+        executor.shutdown(wait=True, cancel_futures=True)
 
 
 app = FastAPI(
@@ -92,7 +105,7 @@ async def index(request: Request) -> HTMLResponse:
     return _render_index(request)
 
 
-@app.get("/health", response_class=JSONResponse)
+@app.get("/healthz", response_class=JSONResponse)
 async def health(request: Request) -> JSONResponse:
     service = getattr(request.app.state, "ocr_service", ocr_service)
     return JSONResponse(
@@ -158,6 +171,102 @@ def _export_rows(results: list[LabelResult]) -> list[dict[str, str | bool]]:
     return rows
 
 
+async def _process_upload(
+    upload: UploadFile,
+    application: ApplicationData | None,
+    service: OcrService,
+    ocr_executor: ThreadPoolExecutor,
+    worker_limit: asyncio.Semaphore,
+    batch_bytes: list[int],
+) -> LabelResult:
+    """Process one image while respecting the request and process OCR limits."""
+
+    async with worker_limit:
+        started = time.perf_counter()
+        file_name = Path(upload.filename or "unnamed-image").name
+        image_preview_url: str | None = None
+        if application is None:
+            return _review_result(
+                file_name,
+                "No application row matched this file name. Add an exact file_name entry and try again.",
+            )
+
+        try:
+            data = await upload.read(config.MAX_IMAGE_BYTES + 1)
+            # This update has no await between read and write, so request tasks cannot
+            # interleave while changing the shared counter.
+            batch_bytes[0] += len(data)
+            if batch_bytes[0] > config.MAX_TOTAL_BYTES:
+                limit_mb = config.MAX_TOTAL_BYTES // (1024 * 1024)
+                return _review_result(
+                    file_name,
+                    f"The combined batch exceeds the {limit_mb} MB request limit.",
+                    application=application,
+                )
+
+            prepared = await asyncio.to_thread(
+                prepare_image,
+                data,
+                file_name,
+                upload.content_type,
+            )
+            image_preview_url = await asyncio.to_thread(
+                create_result_preview_data_url,
+                prepared,
+            )
+            loop = asyncio.get_running_loop()
+            ocr = await loop.run_in_executor(ocr_executor, service.extract, prepared)
+            elapsed = round((time.perf_counter() - started) * 1000)
+            if not ocr.fragments:
+                return LabelResult(
+                    file_name=file_name,
+                    status=Status.NEEDS_REVIEW,
+                    application=application,
+                    image_preview_url=image_preview_url,
+                    processing_time_ms=elapsed,
+                    confidence=0,
+                    fields=unreadable_fields(application),
+                    extracted_text="",
+                    error="No readable text was found. Try a flatter, sharper, evenly lit image.",
+                )
+
+            extracted = extract_fields(ocr, application)
+            status, fields = verify_application(application, extracted, ocr)
+            return LabelResult(
+                file_name=file_name,
+                status=status,
+                application=application,
+                image_preview_url=image_preview_url,
+                processing_time_ms=elapsed,
+                confidence=ocr.average_confidence,
+                fields=fields,
+                extracted_text=ocr.text,
+            )
+        except ImageValidationError as exc:
+            elapsed = round((time.perf_counter() - started) * 1000)
+            return _review_result(file_name, str(exc), elapsed, application)
+        except OcrUnavailableError:
+            elapsed = round((time.perf_counter() - started) * 1000)
+            logger.exception("Local OCR unavailable while processing an upload")
+            return _review_result(
+                file_name,
+                "The local OCR engine is temporarily unavailable. Please retry shortly.",
+                elapsed,
+                application,
+                image_preview_url,
+            )
+        except Exception:
+            elapsed = round((time.perf_counter() - started) * 1000)
+            logger.exception("Unexpected label processing error")
+            return _review_result(
+                file_name,
+                "This image could not be processed. Confirm it is a valid JPEG or PNG and try again.",
+                elapsed,
+                application,
+                image_preview_url,
+            )
+
+
 @app.post("/verify", response_class=HTMLResponse)
 async def verify(
     request: Request,
@@ -205,101 +314,25 @@ async def verify(
             )
 
     batch_started = time.perf_counter()
-    total_bytes = 0
-    results: list[LabelResult] = []
     service = getattr(request.app.state, "ocr_service", ocr_service)
-
-    for upload in valid_images:
-        started = time.perf_counter()
-        file_name = Path(upload.filename or "unnamed-image").name
-        application = applications.get(file_name.casefold()) if applications else None
-        image_preview_url: str | None = None
-        if application is None:
-            results.append(
-                _review_result(
-                    file_name,
-                    "No application row matched this file name. Add an exact file_name entry and try again.",
-                )
+    executor = request.app.state.ocr_executor
+    worker_limit = asyncio.Semaphore(config.OCR_MAX_WORKERS)
+    batch_bytes = [0]
+    results = await asyncio.gather(
+        *(
+            _process_upload(
+                upload,
+                applications.get(Path(upload.filename or "").name.casefold())
+                if applications
+                else None,
+                service,
+                executor,
+                worker_limit,
+                batch_bytes,
             )
-            continue
-
-        try:
-            data = await upload.read(config.MAX_IMAGE_BYTES + 1)
-            total_bytes += len(data)
-            if total_bytes > config.MAX_TOTAL_BYTES:
-                results.append(
-                    _review_result(
-                        file_name,
-                        "The combined batch exceeds the 100 MB request limit.",
-                        application=application,
-                    )
-                )
-                continue
-            prepared = await asyncio.to_thread(
-                prepare_image,
-                data,
-                file_name,
-                upload.content_type,
-            )
-            image_preview_url = create_result_preview_data_url(prepared)
-            ocr = await asyncio.to_thread(service.extract, prepared)
-            elapsed = round((time.perf_counter() - started) * 1000)
-            if not ocr.fragments:
-                results.append(
-                    LabelResult(
-                        file_name=file_name,
-                        status=Status.NEEDS_REVIEW,
-                        application=application,
-                        image_preview_url=image_preview_url,
-                        processing_time_ms=elapsed,
-                        confidence=0,
-                        fields=unreadable_fields(application),
-                        extracted_text="",
-                        error="No readable text was found. Try a flatter, sharper, evenly lit image.",
-                    )
-                )
-                continue
-            extracted = extract_fields(ocr, application)
-            status, fields = verify_application(application, extracted, ocr)
-            results.append(
-                LabelResult(
-                    file_name=file_name,
-                    status=status,
-                    application=application,
-                    image_preview_url=image_preview_url,
-                    processing_time_ms=elapsed,
-                    confidence=ocr.average_confidence,
-                    fields=fields,
-                    extracted_text=ocr.text,
-                )
-            )
-        except ImageValidationError as exc:
-            elapsed = round((time.perf_counter() - started) * 1000)
-            results.append(_review_result(file_name, str(exc), elapsed, application))
-        except OcrUnavailableError:
-            elapsed = round((time.perf_counter() - started) * 1000)
-            logger.exception("Local OCR unavailable while processing an upload")
-            results.append(
-                _review_result(
-                    file_name,
-                    "The local OCR engine is temporarily unavailable. Please retry shortly.",
-                    elapsed,
-                    application,
-                    image_preview_url,
-                )
-            )
-        except Exception:
-            elapsed = round((time.perf_counter() - started) * 1000)
-            logger.exception("Unexpected label processing error")
-            results.append(
-                _review_result(
-                    file_name,
-                    "This image could not be processed. Confirm it is a valid JPEG or PNG and try again.",
-                    elapsed,
-                    application,
-                    image_preview_url,
-                )
-            )
+            for upload in valid_images
+        )
+    )
 
     batch_ms = round((time.perf_counter() - batch_started) * 1000)
     counts = {status.value: sum(result.status == status for result in results) for status in Status}

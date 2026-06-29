@@ -6,6 +6,15 @@ import os
 from pathlib import Path
 
 
+def _positive_int_env(name: str, default: int) -> int:
+    """Read a positive integer without making an optional setting startup-critical."""
+
+    try:
+        return max(1, int(os.getenv(name, str(default))))
+    except (TypeError, ValueError):
+        return default
+
+
 BASE_DIR = Path(__file__).resolve().parent
 TEMPLATES_DIR = BASE_DIR / "templates"
 STATIC_DIR = BASE_DIR / "static"
@@ -15,16 +24,21 @@ APP_VERSION = "1.0.0"
 
 ALLOWED_EXTENSIONS = {".jpg", ".jpeg", ".png"}
 ALLOWED_FORMATS = {"JPEG", "PNG"}
-MAX_IMAGE_BYTES = int(os.getenv("MAX_IMAGE_BYTES", 12 * 1024 * 1024))
-MAX_TOTAL_BYTES = int(os.getenv("MAX_TOTAL_BYTES", 100 * 1024 * 1024))
-MAX_IMAGES = int(os.getenv("MAX_IMAGES", 300))
-MAX_IMAGE_DIMENSION = int(os.getenv("MAX_IMAGE_DIMENSION", 3200))
-MAX_IMAGE_PIXELS = int(os.getenv("MAX_IMAGE_PIXELS", 36_000_000))
+MAX_IMAGE_BYTES = _positive_int_env("MAX_IMAGE_BYTES", 12_582_912)
+MAX_TOTAL_BYTES = _positive_int_env("MAX_TOTAL_BYTES", 104_857_600)
+MAX_IMAGES = _positive_int_env("MAX_IMAGES", 300)
+MAX_IMAGE_DIMENSION = _positive_int_env("MAX_IMAGE_DIMENSION", 3200)
+MAX_IMAGE_PIXELS = _positive_int_env("MAX_IMAGE_PIXELS", 36_000_000)
 
 OCR_LANGUAGES = ["en"]
 OCR_GPU = os.getenv("OCR_GPU", "false").lower() == "true"
-OCR_MODEL_DIR = os.getenv("EASYOCR_MODEL_DIR")
+OCR_MODEL_DIR = os.getenv("EASYOCR_MODEL_DIR") or None
+OCR_MAX_WORKERS = _positive_int_env("OCR_MAX_WORKERS", 1)
 SKIP_OCR_INIT = os.getenv("TTB_SKIP_OCR_INIT", "false").lower() == "true"
+
+LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
+if LOG_LEVEL not in {"CRITICAL", "ERROR", "WARNING", "INFO", "DEBUG"}:
+    LOG_LEVEL = "INFO"
 
 REQUIRED_CSV_COLUMNS = {
     "file_name",

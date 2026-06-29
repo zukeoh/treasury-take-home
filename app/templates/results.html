@@ -133,5 +133,5 @@
 <script id="export-data" type="application/json">{{ {"columns": export_columns, "rows": export_rows}|tojson }}</script>
 {% endblock %}
 {% block scripts %}
-<script src="{{ url_for('static', path='results.js') }}" defer></script>
+<script src="{{ url_for('static', path='results.js').path }}" defer></script>
 {% endblock %}

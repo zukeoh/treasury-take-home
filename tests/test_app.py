@@ -4,6 +4,8 @@ import base64
 import io
 import json
 import re
+import threading
+import time
 from pathlib import Path
 
 from fastapi.testclient import TestClient
@@ -24,7 +26,17 @@ def _png() -> bytes:
 def test_home_page_loads() -> None:
     with TestClient(app) as client:
         response = client.get("/")
+        stylesheet = client.get("/static/styles.css")
+        application_script = client.get("/static/app.js")
     assert response.status_code == 200
+    assert stylesheet.status_code == 200
+    assert stylesheet.headers["content-type"].startswith("text/css")
+    assert application_script.status_code == 200
+    assert 'href="/static/vendor/bootstrap.min.css"' in response.text
+    assert 'href="/static/styles.css"' in response.text
+    assert 'src="/static/theme.js"' in response.text
+    assert 'src="/static/app.js"' in response.text
+    assert "://testserver/static/" not in response.text
     assert "Start A Label Review" in response.text
     assert "An official prototype for label compliance review" not in response.text
     assert "Compliance review workspace" not in response.text
@@ -57,6 +69,17 @@ def test_home_page_loads() -> None:
     assert "Official TTB references" in response.text
     assert "https://www.ttb.gov/regulated-commodities/beverage-alcohol/beer/labeling" in response.text
     assert "https://www.ttb.gov/regulated-commodities/beverage-alcohol/wine/labeling" in response.text
+
+
+def test_healthz_reports_application_status() -> None:
+    with TestClient(app) as client:
+        response = client.get("/healthz")
+        old_route = client.get("/health")
+
+    assert response.status_code == 200
+    assert response.json()["status"] in {"ok", "degraded"}
+    assert "ocr_ready" in response.json()
+    assert old_route.status_code == 404
 
 
 def test_upload_script_retains_and_removes_individual_files() -> None:
@@ -316,3 +339,61 @@ def test_manual_batch_uses_application_data_for_each_file(monkeypatch) -> None:
     assert "back.png" in response.text
     assert "status-pass" in response.text
     assert "status-fail" in response.text
+
+
+def test_batch_ocr_defaults_to_sequential_processing_and_preserves_order(monkeypatch) -> None:
+    lines = [
+        "TEST BRAND",
+        "Lager Beer",
+        "5% ABV",
+        "355 mL",
+        "Test Brewery, Austin, TX",
+        GOVERNMENT_WARNING,
+    ]
+    fake_ocr = OcrResult(
+        fragments=[OcrFragment(text=line, confidence=0.96) for line in lines],
+        text="\n".join(lines),
+        average_confidence=0.96,
+    )
+    lock = threading.Lock()
+    active = 0
+    peak = 0
+
+    def fake_extract(image) -> OcrResult:
+        nonlocal active, peak
+        with lock:
+            active += 1
+            peak = max(peak, active)
+        try:
+            time.sleep(0.02)
+            return fake_ocr
+        finally:
+            with lock:
+                active -= 1
+
+    monkeypatch.setattr(ocr_service, "extract", fake_extract)
+    file_names = ["first.png", "second.png", "third.png"]
+    applications = [
+        {
+            "file_name": file_name,
+            "beverage_type": "beer_malt",
+            "brand_name": "TEST BRAND",
+            "class_type": "Lager Beer",
+            "alcohol_content": "5% ABV",
+            "net_contents": "355 mL",
+            "bottler_name_address": "Test Brewery, Austin, TX",
+        }
+        for file_name in file_names
+    ]
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/verify",
+            files=[("images", (file_name, _png(), "image/png")) for file_name in file_names],
+            data={"manual_applications": json.dumps(applications)},
+        )
+
+    assert response.status_code == 200
+    assert peak == 1
+    assert response.text.index("first.png") < response.text.index("second.png")
+    assert response.text.index("second.png") < response.text.index("third.png")

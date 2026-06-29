@@ -13,6 +13,9 @@ from app.image_service import PreparedImage
 from app.models import OcrFragment, OcrResult
 
 
+ocr_semaphore = threading.BoundedSemaphore(config.OCR_MAX_WORKERS)
+
+
 class OcrUnavailableError(RuntimeError):
     pass
 
@@ -21,7 +24,7 @@ class OcrService:
     def __init__(self) -> None:
         self._reader: Any | None = None
         self._initialization_error: str | None = None
-        self._lock = threading.Lock()
+        self._initialization_lock = threading.Lock()
 
     @property
     def ready(self) -> bool:
@@ -30,7 +33,7 @@ class OcrService:
     def initialize(self) -> None:
         if self._reader is not None or config.SKIP_OCR_INIT:
             return
-        with self._lock:
+        with self._initialization_lock:
             if self._reader is not None:
                 return
             try:
@@ -58,26 +61,28 @@ class OcrService:
         if self._reader is None:
             raise OcrUnavailableError("The local OCR engine is disabled in this environment.")
 
-        first = self._read(image.original)
-        if first.fragments and first.average_confidence >= 0.55:
-            return first
+        # The module-level gate applies across every request in this process. The
+        # first pass and any enhanced retry count as one image OCR operation.
+        with ocr_semaphore:
+            first = self._read(image.original)
+            if first.fragments and first.average_confidence >= 0.55:
+                return first
 
-        second = self._read(image.enhanced)
-        second.used_enhanced_pass = True
-        first_score = first.average_confidence * max(1, len(first.fragments)) ** 0.5
-        second_score = second.average_confidence * max(1, len(second.fragments)) ** 0.5
-        return second if second_score >= first_score else first
+            second = self._read(image.enhanced)
+            second.used_enhanced_pass = True
+            first_score = first.average_confidence * max(1, len(first.fragments)) ** 0.5
+            second_score = second.average_confidence * max(1, len(second.fragments)) ** 0.5
+            return second if second_score >= first_score else first
 
     def _read(self, image: np.ndarray) -> OcrResult:
-        with self._lock:
-            raw_results = self._reader.readtext(
-                image,
-                detail=1,
-                paragraph=False,
-                decoder="greedy",
-                batch_size=1,
-                workers=0,
-            )
+        raw_results = self._reader.readtext(
+            image,
+            detail=1,
+            paragraph=False,
+            decoder="greedy",
+            batch_size=1,
+            workers=0,
+        )
         fragments: list[OcrFragment] = []
         for item in raw_results:
             if len(item) < 3:
@@ -99,4 +104,3 @@ class OcrService:
 
 
 ocr_service = OcrService()
-
