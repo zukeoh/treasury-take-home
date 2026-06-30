@@ -43,30 +43,92 @@ Results summarize the batch and explain each field-level decision. Reviewers can
 
 ## Quick Start
 
+### Prerequisites
+
+- Docker Desktop for the recommended container setup, or Python 3.11 for native setup.
+- Internet access during installation or Docker build. The running container does not download models or call a hosted OCR service.
+- Enough local disk space for PyTorch, both OCR engines, and the EasyOCR model weights.
+
 ### Docker
 
-Docker is the most reproducible path because the image includes English EasyOCR model weights and the Tesseract system package.
+Docker is the recommended and most reproducible path. The image pins CPU-only PyTorch, installs Tesseract, and downloads the English EasyOCR weights during the build.
 
 ```bash
 docker build -t ttb-label-pre-screener .
 docker run --rm -p 8000:8000 ttb-label-pre-screener
 ```
 
-Open [http://localhost:8000](http://localhost:8000). The health endpoint is `/healthz`.
+The default container uses EasyOCR. To use the lighter Tesseract provider locally instead:
+
+```bash
+docker run --rm -p 8000:8000 -e OCR_ENGINE=tesseract ttb-label-pre-screener
+```
+
+Open [http://localhost:8000](http://localhost:8000). Verify startup at [http://localhost:8000/healthz](http://localhost:8000/healthz); the response reports the selected OCR engine and readiness.
 
 ### Native Python
 
-Use Python 3.11. The first native EasyOCR run downloads its English model. Native Tesseract use also requires the `tesseract-ocr` system package. Neither engine requires an API key.
+Native setup defaults to EasyOCR. Its first startup downloads the English model to the local EasyOCR cache, so that first run requires internet access. Later runs use the cached model. Neither OCR engine requires an API key.
+
+#### Windows PowerShell
 
 ```powershell
 py -3.11 -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python -m pip install --upgrade pip
-pip install -r requirements.txt
-uvicorn app.main:app --reload
+python -m pip install torch==2.3.1 torchvision==0.18.1 --index-url https://download.pytorch.org/whl/cpu
+python -m pip install -r requirements.txt
+python -m uvicorn app.main:app --reload
 ```
 
-On macOS or Linux, activate with `source .venv/bin/activate`.
+If the `py` launcher is unavailable but Python 3.11 is on `PATH`, replace `py -3.11` with `python`.
+
+#### macOS
+
+```bash
+python3.11 -m venv .venv
+source .venv/bin/activate
+python -m pip install --upgrade pip
+python -m pip install torch==2.3.1 torchvision==0.18.1
+python -m pip install -r requirements.txt
+python -m uvicorn app.main:app --reload
+```
+
+#### Ubuntu/Debian Linux
+
+Install the runtime libraries used by the Docker image, then create the environment:
+
+```bash
+sudo apt-get update
+sudo apt-get install -y python3.11-venv libgl1 libglib2.0-0 libgomp1
+python3.11 -m venv .venv
+source .venv/bin/activate
+python -m pip install --upgrade pip
+python -m pip install torch==2.3.1 torchvision==0.18.1 --index-url https://download.pytorch.org/whl/cpu
+python -m pip install -r requirements.txt
+python -m uvicorn app.main:app --reload
+```
+
+#### Optional native Tesseract
+
+To select Tesseract, first install the `tesseract` executable and confirm `tesseract --version` works in the same terminal:
+
+- Windows: install Tesseract OCR and add its installation directory to `PATH`.
+- macOS with Homebrew: `brew install tesseract`.
+- Ubuntu/Debian: `sudo apt-get install -y tesseract-ocr`.
+
+Then start the application with the engine override:
+
+```powershell
+# Windows PowerShell
+$env:OCR_ENGINE = "tesseract"
+python -m uvicorn app.main:app --reload
+```
+
+```bash
+# macOS/Linux
+OCR_ENGINE=tesseract python -m uvicorn app.main:app --reload
+```
 
 No environment variables are required. Optional deployment tuning is documented below.
 
