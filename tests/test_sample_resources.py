@@ -53,23 +53,16 @@ def test_all_required_label_images_exist_and_decode() -> None:
 
 def test_csv_files_use_required_schema_and_match_images() -> None:
     generated = {path.name for path in LABEL_DIR.glob("*.png")}
-    expected_counts = {
-        "sample_labels.csv": 18,
-        "failing_labels.csv": 16,
-        "batch_mixed.csv": 50,
-    }
-    for name in ("sample_labels.csv", "failing_labels.csv", "batch_mixed.csv"):
-        path = CSV_DIR / name
-        with path.open(encoding="utf-8", newline="") as handle:
-            rows = list(csv.reader(handle))
-        assert rows[0] == LEGACY_HEADER
-        csv_names = {row[0] for row in rows[1:]}
-        assert len(csv_names) == expected_counts[name]
-        assert csv_names.issubset(generated)
-        if name == "batch_mixed.csv":
-            assert csv_names == generated
-        parsed = parse_application_csv(path.read_bytes())
-        assert len(parsed) == len(rows) - 1
+    assert {path.name for path in CSV_DIR.glob("*.csv")} == {"batch_mixed.csv"}
+    path = CSV_DIR / "batch_mixed.csv"
+    with path.open(encoding="utf-8", newline="") as handle:
+        rows = list(csv.reader(handle))
+    assert rows[0] == LEGACY_HEADER
+    csv_names = {row[0] for row in rows[1:]}
+    assert len(csv_names) == 50
+    assert csv_names == generated
+    parsed = parse_application_csv(path.read_bytes())
+    assert len(parsed) == len(rows) - 1
 
 
 def test_sample_resource_readme_exists() -> None:

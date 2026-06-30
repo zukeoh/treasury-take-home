@@ -313,7 +313,7 @@ CSV_ROWS.update({
     "festival_lager_weird_layout.png": ["FESTIVAL RESERVE", "American Lager", "4.7% Alc./Vol.", "12 FL. OZ. (355 mL)", "Festival Brewing Co., Milwaukee, WI", "", "false"],
 })
 
-SAMPLE_LABELS = [
+EXPECTED_PASS_LABELS = [
     "old_tom_distillery.png",
     "stones_throw_case_variation.png",
     "casa_azul_tequila_import.png",
@@ -334,32 +334,15 @@ SAMPLE_LABELS = [
     "mudtrack_brown_ale.png",
 ]
 
-FAILING_LABELS = [
+EXPECTED_FAIL_LABELS = [
     "red_ridge_missing_warning.png",
     "north_point_wrong_abv.png",
     "sol_y_mar_missing_country.png",
-    "cropped_warning_label.png",
     "hilltop_wrong_net_contents.png",
-    "ember_cask_torn_bourbon.png",
-    "midnight_vodka_blurry.png",
-    "jade_dragon_flipped.png",
-    "black_anchor_cropped_side.png",
-    "summit_brandy_perspective.png",
-    "frost_line_upside_down.png",
-    "broken_compass_cropped_top.png",
-    "night_jar_dark.png",
-    "golden_hour_occluded.png",
-    "upside_down_stout.png",
     "half_label_wheat_cropped.png",
 ]
 
 CSV_GROUPS = {
-    "sample_labels.csv": [
-        *SAMPLE_LABELS,
-    ],
-    "failing_labels.csv": [
-        *FAILING_LABELS,
-    ],
     "batch_mixed.csv": [
         *(spec.file_name for spec in LABELS),
     ],
@@ -674,6 +657,8 @@ def render_label(spec: LabelSpec) -> Image.Image:
 
 def write_csv_files(csv_dir: Path) -> None:
     csv_dir.mkdir(parents=True, exist_ok=True)
+    for obsolete_name in ("sample_labels.csv", "failing_labels.csv"):
+        (csv_dir / obsolete_name).unlink(missing_ok=True)
     for file_name, label_names in CSV_GROUPS.items():
         with (csv_dir / file_name).open("w", encoding="utf-8", newline="") as handle:
             writer = csv.writer(handle, lineterminator="\n")
@@ -746,7 +731,7 @@ def write_readme(output: Path) -> None:
         "These 50 labels are deterministic test assets only. They use fictional brands, generated",
         "logos, and synthetic application data; they are not regulatory approvals.",
         "",
-        "Regenerate every image and the three CSV batches from the repository root:",
+        "Regenerate every image and the batch CSV from the repository root:",
         "",
         "```bash",
         "python tests/resources/generate_test_data.py",
@@ -767,30 +752,25 @@ def write_readme(output: Path) -> None:
         "| --- | --- | --- | --- | --- |",
     ]
     for spec in LABELS:
-        if spec.file_name in FAILING_LABELS:
-            routing = "FAIL or NEEDS REVIEW"
-            csv_name = "failing_labels.csv"
-        elif spec.file_name in SAMPLE_LABELS:
-            routing = "PASS or OCR-dependent review"
-            csv_name = "sample_labels.csv"
+        if spec.file_name in EXPECTED_FAIL_LABELS:
+            routing = "FAIL"
+        elif spec.file_name in EXPECTED_PASS_LABELS:
+            routing = "PASS"
         else:
-            routing = "Mixed OCR/rule outcome"
-            csv_name = "batch_mixed.csv"
+            routing = "NEEDS REVIEW"
         lines.append(
             f"| `{spec.file_name}` | {beverage_group(spec)} | "
             f"{VARIANT_PURPOSES.get(spec.variant, spec.variant.replace('_', ' '))} | "
-            f"{routing} | `{csv_name}` |"
+            f"{routing} | `batch_mixed.csv` |"
         )
     lines.extend(
         [
             "",
-            "## CSV sets",
+            "## CSV",
             "",
-            f"- `sample_labels.csv`: {len(SAMPLE_LABELS)} clean-to-moderate examples across categories.",
-            f"- `failing_labels.csv`: {len(FAILING_LABELS)} compliance failures and severe OCR cases.",
             f"- `batch_mixed.csv`: all {len(LABELS)} images for full-batch evaluation.",
             "",
-            "The CSVs retain the original take-home schema for compatibility. Image distortion may",
+            "The CSV retains the original take-home schema for compatibility. Image distortion may",
             "cause OCR-dependent routing even when the synthetic application row matches the artwork.",
             "",
         ]

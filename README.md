@@ -94,6 +94,22 @@ Core stack: Python 3.11, FastAPI, Uvicorn, Jinja2, local Bootstrap 5.3, EasyOCR,
 
 Local OCR keeps evaluator setup predictable and avoids hosted inference, API keys, and per-request model cost. Deterministic Python rules make each status traceable. Docker embeds the English EasyOCR weights and Tesseract language data; this enlarges the image and build time but removes runtime model downloads. These model files are application assets—uploaded labels are not persisted.
 
+### Cost/benefit: local OCR versus a vision LLM
+
+Neither approach is universally better. They solve different parts of the document-review problem.
+
+| Consideration | Local OCR (Tesseract/EasyOCR) | Vision-language model | POC decision |
+| --- | --- | --- | --- |
+| Primary strength | Fast, inexpensive literal text extraction | Contextual interpretation of messy or unusual layouts | Use OCR for the common path |
+| Difficult images | Can lose text under blur, glare, damage, handwriting, or unconventional placement | Can infer obscured text from visual and language context | Escalate uncertain OCR instead of guessing |
+| Output | Raw text and confidence blocks; application code must structure them | Can return JSON, tables, or explanations directly | Deterministic parsers provide the required structure |
+| Latency | Usually lower and predictable on local CPU | Usually slower because each image requires model inference | Keep batch evaluation responsive and bounded |
+| Cost | Open-source runtime with no per-request fee | Token/image billing or the cost of hosting a large local model | Avoid recurring inference cost for routine labels |
+| Data handling | Runs inside the container without sending labels to another service | Hosted use may transmit label data to a third party | Keep prototype uploads local to the deployed service |
+| Auditability | Literal OCR evidence plus explicit, repeatable rules | Outputs may vary and can infer or hallucinate missing content | Keep statutory decisions rule-based and reviewable |
+
+Local OCR is therefore the better baseline for this take-home: most expected labels can be processed more cheaply and quickly, with less infrastructure and a clearer evidence trail. The tradeoff is weaker interpretation of damaged or unusually photographed labels, which is why uncertainty becomes NEEDS REVIEW rather than an invented match.
+
 ## OCR Engine Selection
 
 The app supports two local OCR engines:
@@ -218,7 +234,99 @@ The suite contains 59 fast tests for rules, parsing, uploads, exports, OCR provi
 docker run --rm -e PYTHONPATH=/workspace -e RUN_TESSERACT_FIXTURE_TESTS=1 -e MAX_OCR_IMAGE_DIMENSION=1600 -e TESSERACT_PSM=11 -e TESSERACT_DESKEW=true -v "${PWD}:/workspace" -w /workspace --entrypoint python ttb-label-pre-screener:local tests/test_tesseract_fixture_quality.py
 ```
 
-`tests/resources/sample_data/` contains 50 generated labels and three CSV batches. `batch_mixed.csv` covers all images; the other batches target clean-to-moderate and severe/failing cases. Dataset realism limits are documented below.
+`tests/resources/sample_data/` contains 50 generated labels and one matching CSV. `batch_mixed.csv` covers all images. Dataset realism limits are documented below.
+
+### Test the Render demo with all 50 labels
+
+Download or clone this repository first; the test files are not hosted by the Render app.
+
+From the repository root, use:
+
+- Label folder: [`tests/resources/sample_data/labels/`](tests/resources/sample_data/labels/) — 50 PNG files
+- Matching CSV: [`tests/resources/sample_data/csv/batch_mixed.csv`](tests/resources/sample_data/csv/batch_mixed.csv)
+
+1. Open the [Render demo](https://treasury-take-home-4wq7.onrender.com/).
+2. Under **Add Label Images**, select **Browse Files**.
+3. Open `tests/resources/sample_data/labels/`, select all 50 PNG files (`Ctrl+A` on Windows/Linux or `Command+A` on macOS), and choose **Open**.
+4. Confirm the page reports 50 selected images.
+5. Under **Add Application Data**, choose **Upload Batch CSV**.
+6. Select `tests/resources/sample_data/csv/batch_mixed.csv`.
+7. Choose **Verify Labels** once and leave the tab open while the request runs.
+8. On the results page, confirm **50 Total**, inspect the PASS/FAIL/NEEDS REVIEW filters, and use **Export Results** to download the output CSV.
+
+Render uses one Tesseract OCR worker, so this full synchronous batch can take several minutes, especially after a cold start. Avoid refreshing or submitting the form twice. Outcome counts may vary as OCR changes; `batch_mixed.csv` supplies expected application values, not precomputed golden results.
+
+### Intended outcome reference
+
+The fixture-design baseline is **18 PASS, 5 FAIL, and 27 NEEDS REVIEW**. This is a reference for the scenarios represented by the images—not a guarantee that every OCR engine/version will produce identical observed counts. A clean fixture can move to NEEDS REVIEW when OCR confidence is poor, while severe image loss can produce FAIL when required evidence is absent.
+
+<details>
+<summary><strong>PASS — 18 labels</strong></summary>
+
+- `atlas_gin_zoomed_out.png`
+- `brickhouse_dirty.png`
+- `casa_azul_tequila_import.png`
+- `cloudline_motion_blur.png`
+- `coastal_pilsner_perspective.png`
+- `copper_fox_rotated_left.png`
+- `curved_can_pale_ale.png`
+- `granite_peak_shadow.png`
+- `iron_hop_rotated_right.png`
+- `laurel_ridge_wine.png`
+- `lunar_rum_dirty.png`
+- `mossy_bank_crumpled.png`
+- `mudtrack_brown_ale.png`
+- `old_tom_distillery.png`
+- `orchard_lane_low_resolution.png`
+- `pine_trail_beer.png`
+- `stones_throw_case_variation.png`
+- `wild_rose_water_stain.png`
+
+</details>
+
+<details>
+<summary><strong>FAIL — 5 labels</strong></summary>
+
+- `half_label_wheat_cropped.png` — statutory warning removed
+- `hilltop_wrong_net_contents.png` — net contents mismatch
+- `north_point_wrong_abv.png` — alcohol-content mismatch
+- `red_ridge_missing_warning.png` — statutory warning missing
+- `sol_y_mar_missing_country.png` — imported product missing country of origin
+
+</details>
+
+<details>
+<summary><strong>NEEDS REVIEW — 27 labels</strong></summary>
+
+- `bayview_skewed_angle.png`
+- `black_anchor_cropped_side.png`
+- `blue_door_vertical_text.png`
+- `broken_compass_cropped_top.png`
+- `canyon_echo_zoomed_in.png`
+- `crooked_still_weird_layout.png`
+- `cropped_warning_label.png`
+- `ember_cask_torn_bourbon.png`
+- `festival_lager_weird_layout.png`
+- `frost_line_upside_down.png`
+- `golden_hour_occluded.png`
+- `jade_dragon_flipped.png`
+- `midnight_vodka_blurry.png`
+- `mirror_ipa_flipped.png`
+- `neon_stag_glare.png`
+- `night_jar_dark.png`
+- `paper_crane_logo_heavy.png`
+- `pixel_porter_low_resolution.png`
+- `prairie_moon_glare.png`
+- `riverbend_noisy.png`
+- `sidecrop_amber.png`
+- `silver_oak_low_contrast.png`
+- `summit_brandy_perspective.png`
+- `sunroom_overexposed.png`
+- `tiny_ale_zoomed_out.png`
+- `torn_ticket_saison.png`
+- `upside_down_stout.png`
+
+</details>
 
 ## Security and Data Handling
 
@@ -275,4 +383,12 @@ The fixtures are useful for repeatable regression tests, not for claiming real-w
 
 Local OCR and deterministic rules can handle the majority of expected labels faster and more cheaply, without per-request model cost or added infrastructure. Applying AI to every review would add credentials or a large local model, latency, operational and data-handling complexity, nondeterministic output, hallucination risk, and a separate accuracy/bias evaluation.
 
-A production follow-up could use an agency-approved model only as a second reviewer for OCR-generated FAIL and NEEDS REVIEW cases. It could compare the image, OCR text, expected values, and rule evidence, then suggest likely OCR corrections. Confidence gates, redaction and retention controls, prompt/model version logs, and human confirmation would be required; AI should not silently override statutory rules or issue approval.
+A production follow-up could use a hybrid second-review path:
+
+1. Run local OCR and deterministic validation for every label.
+2. Send only OCR-generated FAIL and NEEDS REVIEW cases to an agency-approved hosted or local vision model.
+3. Ask the model for a schema-validated advisory response: likely text corrections, conflicting evidence, confidence, and an explanation tied to the image and expected application values.
+4. Preserve the original OCR text and rule result alongside the AI suggestion.
+5. Require a human to confirm any override; the model must not change statutory results or issue approval automatically.
+
+This limits model cost and latency to exception cases while adding contextual interpretation where traditional OCR is weakest. A real implementation would also require confidence gates, redaction and retention controls, approved data residency, prompt/model version logs, accuracy and bias evaluation, and monitoring for hallucinated text.
