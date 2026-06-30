@@ -32,6 +32,16 @@ def _bounded_int_env(name: str, default: int, minimum: int, maximum: int) -> int
     return value if minimum <= value <= maximum else default
 
 
+def _bounded_float_env(name: str, default: float, minimum: float, maximum: float) -> float:
+    """Read a floating-point value constrained to a safe supported range."""
+
+    try:
+        value = float(os.getenv(name, str(default)))
+    except (TypeError, ValueError):
+        return default
+    return value if minimum <= value <= maximum else default
+
+
 BASE_DIR = Path(__file__).resolve().parent
 TEMPLATES_DIR = BASE_DIR / "templates"
 STATIC_DIR = BASE_DIR / "static"
@@ -53,6 +63,10 @@ OCR_ENGINE = os.getenv("OCR_ENGINE", "easyocr").strip().lower()
 OCR_GPU = _bool_env("OCR_GPU")
 OCR_MODEL_DIR = os.getenv("EASYOCR_MODEL_DIR") or None
 OCR_MAX_WORKERS = _positive_int_env("OCR_MAX_WORKERS", 2)
+EASYOCR_ROTATION_RETRY = _bool_env("EASYOCR_ROTATION_RETRY", True)
+EASYOCR_ROTATION_RETRY_THRESHOLD = _bounded_float_env(
+    "EASYOCR_ROTATION_RETRY_THRESHOLD", 0.45, 0.0, 1.0
+)
 ENABLE_SECOND_OCR_PASS = _bool_env("ENABLE_SECOND_OCR_PASS")
 TESSERACT_PSM = _bounded_int_env("TESSERACT_PSM", 11, 3, 13)
 TESSERACT_DESKEW = _bool_env("TESSERACT_DESKEW", True)

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 
 from rapidfuzz.fuzz import WRatio
@@ -94,35 +95,96 @@ def _best_window(ocr: OcrResult, expected: str, max_fragments: int) -> str:
 
 def _best_alcohol(text: str, expected: str) -> str:
     found = extract_alcohol_measures(text)
-    if not found:
-        return ""
     expected_measures = extract_alcohol_measures(expected)
     selected: list[str] = []
     for unit in ("abv", "proof"):
         candidates = [getattr(measure, unit) for measure in found if getattr(measure, unit) is not None]
-        if not candidates:
-            continue
         expected_values = [
             getattr(measure, unit)
             for measure in expected_measures
             if getattr(measure, unit) is not None
         ]
-        value = min(
-            candidates,
-            key=lambda candidate: min(
-                (abs(candidate - target) for target in expected_values), default=0
+        tolerance = 0.15 if unit == "abv" else 0.3
+        exact_candidate = next(
+            (
+                candidate
+                for candidate in candidates
+                if any(abs(candidate - target) <= tolerance for target in expected_values)
             ),
+            None,
         )
+        if exact_candidate is not None:
+            value = exact_candidate
+        else:
+            marker_seen = (
+                bool(re.search(r"%|\babv\b|\balc", text, re.I))
+                if unit == "abv"
+                else bool(re.search(r"\bproof\b", text, re.I))
+            )
+            separated_target = next(
+                (target for target in expected_values if marker_seen and _number_seen(text, target)),
+                None,
+            )
+            if separated_target is not None:
+                value = separated_target
+            elif candidates:
+                value = min(
+                    candidates,
+                    key=lambda candidate: min(
+                        (abs(candidate - target) for target in expected_values), default=0
+                    ),
+                )
+            else:
+                continue
         selected.append(f"{human_number(value)}% ABV" if unit == "abv" else f"{human_number(value)} proof")
     return ", ".join(selected)
 
 
+def _number_seen(text: str, value: float) -> bool:
+    rendered = human_number(value)
+    if "." in rendered:
+        whole, fraction = rendered.split(".", 1)
+        pattern = rf"(?<!\d){re.escape(whole)}[.,]{re.escape(fraction)}(?!\d)"
+    else:
+        pattern = rf"(?<!\d){re.escape(rendered)}(?!\d)"
+    return bool(re.search(pattern, text))
+
+
+def _separated_net_contents_evidence(text: str, source: str) -> bool:
+    match = re.search(
+        r"(?P<value>\d+(?:[.,]\d+)?)\s*(?P<unit>ml|millilit(?:er|re)s?|l|lit(?:er|re)s?|cl)\b",
+        source,
+        re.I,
+    )
+    if not match:
+        return False
+    value = float(match.group("value").replace(",", "."))
+    unit = match.group("unit").casefold()
+    tokens = set(normalize_text(text).split())
+    if unit == "ml" or unit.startswith("millilit"):
+        unit_seen = bool(tokens & {"ml", "milliliter", "milliliters", "millilitre", "millilitres"})
+    elif unit == "cl":
+        unit_seen = "cl" in tokens
+    else:
+        unit_seen = bool(tokens & {"l", "liter", "liters", "litre", "litres"})
+    return unit_seen and _number_seen(text, value)
+
+
 def _best_net_contents(text: str, expected: str) -> str:
     found = extract_net_contents(text)
-    if not found:
-        return ""
     expected_values = extract_net_contents(expected)
     expected_ml = expected_values[0].milliliters if expected_values else None
+    if expected_ml is not None:
+        exact = next(
+            (item for item in found if abs(item.milliliters - expected_ml) <= 1),
+            None,
+        )
+        if exact is not None:
+            return exact.source
+        if expected_values and _separated_net_contents_evidence(text, expected_values[0].source):
+            return expected_values[0].source
+    if not found:
+        return ""
     selected = min(
         found,
         key=lambda item: abs(item.milliliters - expected_ml) if expected_ml is not None else 0,

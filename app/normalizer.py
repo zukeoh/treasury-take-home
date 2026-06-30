@@ -13,6 +13,9 @@ from rapidfuzz.fuzz import ratio, token_set_ratio
 def normalize_text(value: str) -> str:
     value = unicodedata.normalize("NFKD", value or "")
     value = "".join(char for char in value if not unicodedata.combining(char))
+    # OCR commonly drops possessive apostrophes and returns STONES for STONE'S.
+    # Treat those literal typography variants as equivalent before punctuation removal.
+    value = re.sub(r"(?i)([a-z0-9])['’]s\b", r"\1s", value)
     value = value.casefold().replace("&", " and ")
     return " ".join(re.findall(r"[a-z0-9]+", value))
 

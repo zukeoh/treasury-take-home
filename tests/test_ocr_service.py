@@ -22,7 +22,7 @@ from app.ocr_service import (
 from app.telemetry import LOG_FORMAT, RequestTrace
 
 
-def test_process_wide_gate_serializes_easyocr_by_default(caplog) -> None:
+def test_process_wide_gate_limits_easyocr_to_configured_workers(caplog) -> None:
     caplog.set_level("INFO", logger="app.ocr_service")
     lock = threading.Lock()
     active = 0
@@ -65,12 +65,13 @@ def test_process_wide_gate_serializes_easyocr_by_default(caplog) -> None:
         )
 
     assert all(result.text == "readable label text" for result in results)
-    assert peak == 1
+    assert peak == config.OCR_MAX_WORKERS
     assert "MARK before_ocr" in caplog.text
     assert "MARK after_ocr" in caplog.text
 
 
-def test_second_pass_and_enhanced_buffer_are_disabled_by_default() -> None:
+def test_second_pass_and_enhanced_buffer_are_disabled_by_default(monkeypatch) -> None:
+    monkeypatch.setattr(config, "EASYOCR_ROTATION_RETRY", False)
     calls = 0
 
     class LowConfidenceReader:
@@ -96,6 +97,55 @@ def test_second_pass_and_enhanced_buffer_are_disabled_by_default() -> None:
     assert prepared.enhanced is None
     assert result.used_enhanced_pass is False
     assert calls == 1
+
+
+def test_easyocr_uses_label_tuned_detection_settings() -> None:
+    captured: dict[str, object] = {}
+
+    class FakeReader:
+        def readtext(self, image, **kwargs):
+            captured.update(kwargs)
+            return [(None, "GOVERNMENT WARNING:", 0.95)]
+
+    provider = EasyOcrProvider()
+    provider._reader = FakeReader()
+    provider.read(np.zeros((20, 40, 3), dtype=np.uint8))
+
+    assert captured["decoder"] == "greedy"
+    assert captured["text_threshold"] == 0.55
+    assert captured["low_text"] == 0.3
+    assert captured["mag_ratio"] == 1.25
+    assert captured["contrast_ths"] == 0.08
+    assert captured["adjust_contrast"] == 0.7
+    assert captured["add_margin"] == 0.08
+    assert "rotation_info" not in captured
+
+
+def test_easyocr_retries_low_confidence_text_with_rotation(monkeypatch) -> None:
+    calls: list[dict[str, object]] = []
+    images: list[np.ndarray] = []
+
+    class FakeReader:
+        def readtext(self, image, **kwargs):
+            calls.append(kwargs)
+            images.append(image.copy())
+            if len(calls) == 1:
+                return [(None, "upside down", 0.2)]
+            return [(None, "NORTH STAR STOUT", 0.95)]
+
+    monkeypatch.setattr(config, "EASYOCR_ROTATION_RETRY", True)
+    monkeypatch.setattr(config, "EASYOCR_ROTATION_RETRY_THRESHOLD", 0.45)
+    provider = EasyOcrProvider()
+    provider._reader = FakeReader()
+    pixels = np.arange(72, dtype=np.uint8).reshape((3, 8, 3))
+
+    result = provider.read(pixels)
+
+    assert len(calls) == 2
+    assert "rotation_info" not in calls[1]
+    assert np.array_equal(images[1], np.rot90(pixels, 2))
+    assert result.text == "NORTH STAR STOUT"
+    assert result.used_rotation_retry is True
 
 
 def test_deployment_uses_conservative_ocr_defaults_without_render_secrets() -> None:

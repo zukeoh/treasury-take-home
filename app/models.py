@@ -46,12 +46,24 @@ class ApplicationData(BaseModel):
     def infer_type_and_validate_import(self) -> "ApplicationData":
         if self.beverage_type is None:
             normalized = self.class_type.casefold()
-            if any(term in normalized for term in ("beer", "ale", "lager", "malt", "porter", "stout", "ipa")):
-                self.beverage_type = BeverageType.BEER_MALT
-            elif any(term in normalized for term in ("wine", "cabernet", "chardonnay", "merlot", "pinot", "riesling", "champagne")):
-                self.beverage_type = BeverageType.WINE
-            elif any(term in normalized for term in ("bourbon", "brandy", "gin", "rum", "tequila", "vodka", "whiskey", "whisky", "distilled spirits")):
+            # Spirits must be checked before generic "malt" so products such as
+            # American Single Malt Whiskey are not classified as malt beverages.
+            if any(term in normalized for term in (
+                "bourbon", "brandy", "gin", "rum", "tequila", "vodka",
+                "whiskey", "whisky", "distilled spirits", "rice spirit",
+            )):
                 self.beverage_type = BeverageType.DISTILLED_SPIRITS
+            elif any(term in normalized for term in (
+                "wine", "cabernet", "chardonnay", "merlot", "pinot", "riesling",
+                "champagne", "syrah", "sauvignon", "zinfandel", "chenin",
+                "petite sirah", "red blend", "sake",
+            )):
+                self.beverage_type = BeverageType.WINE
+            elif any(term in normalized for term in (
+                "beer", "ale", "lager", "malt beverage", "malt liquor", "porter", "stout",
+                "ipa", "pilsner", "saison",
+            )):
+                self.beverage_type = BeverageType.BEER_MALT
         if self.imported and not self.country_of_origin:
             raise ValueError("country_of_origin is required when imported is true")
         return self
@@ -73,6 +85,7 @@ class OcrResult(BaseModel):
     engine: str = "unknown"
     elapsed_ms: int = 0
     used_enhanced_pass: bool = False
+    used_rotation_retry: bool = False
 
     @property
     def fragments(self) -> list[OcrBlock]:

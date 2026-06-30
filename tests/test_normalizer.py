@@ -3,6 +3,7 @@ from app.normalizer import extract_alcohol_measures, extract_net_contents, norma
 
 def test_punctuation_and_case_do_not_change_normalized_brand() -> None:
     assert normalize_text("STONE'S THROW") == normalize_text("Stone’s Throw")
+    assert normalize_text("STONE'S THROW") == normalize_text("STONES THROW")
     assert similarity("STONE'S THROW", "Stone's Throw") == 100
 
 

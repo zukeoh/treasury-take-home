@@ -197,12 +197,12 @@ Local OCR is therefore the better baseline for this take-home: most expected lab
 
 The app supports two local OCR engines:
 
-- **EasyOCR** is the application default and is generally more tolerant of angled, blurred, decorative, or otherwise difficult label photos.
+- **EasyOCR** is the application default and is generally more tolerant of angled, blurred, decorative, or otherwise difficult label photos. Its detector is tuned for small label text and punctuation. A low-confidence result can trigger one whole-image 180° retry for an upside-down label.
 - **Tesseract** uses less memory and starts faster on small CPU instances. Its preprocessing includes sparse-text segmentation, contrast normalization, dark-image inversion, adaptive thresholding, sharpening, a white border, and conservative deskewing.
 
 The deployed Render demo selects Tesseract because EasyOCR also loads PyTorch and a neural model, increasing cold-start time, CPU use, and peak memory. Tesseract is the safer hosted choice on a low-tier plan, although recognition may be worse on difficult artwork. This is a resource tradeoff, not a claim that Tesseract is more accurate.
 
-Set `OCR_ENGINE=easyocr` locally or on a larger instance for the stronger difficult-image engine. Invalid values log a warning and fall back to EasyOCR. `/healthz`, result cards, and CSV exports report the selected engine.
+Set `OCR_ENGINE=easyocr` locally or on a larger instance for the stronger difficult-image engine. The rotation retry is deliberately limited: testing every orientation for every detected text box was more accurate in a few cases but made difficult batches several times slower and increased resource pressure. Invalid engine values log a warning and fall back to EasyOCR. `/healthz`, result cards, and CSV exports report the selected engine.
 
 Neither engine requires an API key, hosted OCR account, or network request at runtime.
 
@@ -285,6 +285,8 @@ No environment variables are required for the prototype. Optional tuning variabl
 | `MAX_OCR_IMAGE_DIMENSION` | `1600` | OCR long-edge resize target |
 | `ENABLE_SECOND_OCR_PASS` | `false` | Enables the enhanced retry for weak OCR |
 | `OCR_GPU` | `false` | Enables GPU OCR if available |
+| `EASYOCR_ROTATION_RETRY` | `true` | Retries low-confidence EasyOCR labels after a 180° rotation |
+| `EASYOCR_ROTATION_RETRY_THRESHOLD` | `0.45` | Confidence below which the rotation retry runs |
 | `TESSERACT_PSM` | `11` | Sparse-text segmentation mode for label layouts |
 | `TESSERACT_DESKEW` | `true` | Corrects detected skew up to 15 degrees |
 
@@ -311,7 +313,7 @@ pip install -r requirements-test.txt
 pytest
 ```
 
-The suite contains 59 fast tests for rules, parsing, uploads, exports, OCR providers, concurrency, tracing, preprocessing, health checks, and deployment defaults. Three opt-in tests run the real Tesseract binary against generated fixtures.
+The fast suite covers rules, parsing, uploads, exports, OCR providers, concurrency, tracing, preprocessing, health checks, and deployment defaults. Three opt-in tests run the real Tesseract binary against generated fixtures.
 
 ```powershell
 docker run --rm -e PYTHONPATH=/workspace -e RUN_TESSERACT_FIXTURE_TESTS=1 -e MAX_OCR_IMAGE_DIMENSION=1600 -e TESSERACT_PSM=11 -e TESSERACT_DESKEW=true -v "${PWD}:/workspace" -w /workspace --entrypoint python ttb-label-pre-screener:local tests/test_tesseract_fixture_quality.py

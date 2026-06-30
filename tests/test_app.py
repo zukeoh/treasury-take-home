@@ -11,6 +11,7 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 from PIL import Image
 
+from app import config
 from app.config import GOVERNMENT_WARNING
 from app.main import app
 from app.models import OcrFragment, OcrResult
@@ -354,7 +355,7 @@ def test_manual_batch_uses_application_data_for_each_file(monkeypatch) -> None:
     assert "status-fail" in response.text
 
 
-def test_batch_ocr_defaults_to_sequential_processing_and_preserves_order(monkeypatch) -> None:
+def test_batch_ocr_honors_configured_concurrency_and_preserves_order(monkeypatch) -> None:
     lines = [
         "TEST BRAND",
         "Lager Beer",
@@ -407,6 +408,6 @@ def test_batch_ocr_defaults_to_sequential_processing_and_preserves_order(monkeyp
         )
 
     assert response.status_code == 200
-    assert peak == 1
+    assert peak == config.OCR_MAX_WORKERS
     assert response.text.index("first.png") < response.text.index("second.png")
     assert response.text.index("second.png") < response.text.index("third.png")

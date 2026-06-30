@@ -33,6 +33,7 @@ FIELD_REQUIREMENT_BASIS = {
     "Distilled Spirits Age Statement": "An age statement is required for specified distilled spirits classes and circumstances.",
     "Distilled Spirits Commodity Statement": "A commodity or composition statement is required for specified distilled spirits products.",
 }
+OCR_INCONCLUSIVE_THRESHOLD = 0.55
 
 
 def _annotate_results(application: ApplicationData, fields: list[FieldResult]) -> list[FieldResult]:
@@ -103,14 +104,20 @@ def _fuzzy_result(
     detected: str,
     pass_threshold: float,
     review_threshold: float,
+    ocr_confidence: float = 1.0,
 ) -> FieldResult:
     if not detected:
+        inconclusive = ocr_confidence < OCR_INCONCLUSIVE_THRESHOLD
         return FieldResult(
             field=field,
             expected=expected,
             detected="Not detected",
-            status=Status.FAIL,
-            explanation=f"No readable {field.casefold()} matched the application.",
+            status=Status.NEEDS_REVIEW if inconclusive else Status.FAIL,
+            explanation=(
+                f"OCR confidence was too low to establish the {field.casefold()}; review the image manually."
+                if inconclusive
+                else f"No readable {field.casefold()} matched the application."
+            ),
         )
     score = similarity(expected, detected)
     if score >= pass_threshold:
@@ -119,6 +126,12 @@ def _fuzzy_result(
     elif score >= review_threshold:
         status = Status.NEEDS_REVIEW
         explanation = f"A possible match was found, but it is ambiguous ({score:.0f}%)."
+    elif ocr_confidence < OCR_INCONCLUSIVE_THRESHOLD:
+        status = Status.NEEDS_REVIEW
+        explanation = (
+            f"The possible match scored {score:.0f}%, but OCR confidence was low; "
+            "review the image manually before treating it as a mismatch."
+        )
     else:
         status = Status.FAIL
         explanation = f"Detected text materially differs from the application ({score:.0f}% match)."
@@ -131,7 +144,7 @@ def _fuzzy_result(
     )
 
 
-def _alcohol_result(expected: str, detected: str) -> FieldResult:
+def _alcohol_result(expected: str, detected: str, ocr_confidence: float = 1.0) -> FieldResult:
     expected_values = extract_alcohol_measures(expected)
     detected_values = extract_alcohol_measures(detected)
     if not expected_values:
@@ -143,12 +156,17 @@ def _alcohol_result(expected: str, detected: str) -> FieldResult:
             explanation="The application alcohol content could not be normalized; compare it manually.",
         )
     if not detected_values:
+        inconclusive = ocr_confidence < OCR_INCONCLUSIVE_THRESHOLD
         return FieldResult(
             field="Alcohol Content",
             expected=expected,
             detected="Not detected",
-            status=Status.FAIL,
-            explanation="No alcohol-by-volume or proof statement was detected.",
+            status=Status.NEEDS_REVIEW if inconclusive else Status.FAIL,
+            explanation=(
+                "OCR confidence was too low to establish the alcohol statement; review it manually."
+                if inconclusive
+                else "No alcohol-by-volume or proof statement was detected."
+            ),
         )
 
     checks: list[bool] = []
@@ -170,8 +188,16 @@ def _alcohol_result(expected: str, detected: str) -> FieldResult:
         status = Status.NEEDS_REVIEW
         explanation = "One alcohol measure matches, but another expected measure was not readable."
     else:
-        status = Status.FAIL
-        explanation = "Detected alcohol value does not match the application."
+        status = (
+            Status.NEEDS_REVIEW
+            if ocr_confidence < OCR_INCONCLUSIVE_THRESHOLD
+            else Status.FAIL
+        )
+        explanation = (
+            "OCR confidence was low and the detected alcohol value is inconclusive; review it manually."
+            if status == Status.NEEDS_REVIEW
+            else "Detected alcohol value does not match the application."
+        )
     return FieldResult(
         field="Alcohol Content",
         expected=expected,
@@ -181,7 +207,7 @@ def _alcohol_result(expected: str, detected: str) -> FieldResult:
     )
 
 
-def _net_contents_result(expected: str, detected: str) -> FieldResult:
+def _net_contents_result(expected: str, detected: str, ocr_confidence: float = 1.0) -> FieldResult:
     expected_values = extract_net_contents(expected)
     detected_values = extract_net_contents(detected)
     if not expected_values:
@@ -193,27 +219,37 @@ def _net_contents_result(expected: str, detected: str) -> FieldResult:
             explanation="The application quantity could not be normalized; compare it manually.",
         )
     if not detected_values:
+        inconclusive = ocr_confidence < OCR_INCONCLUSIVE_THRESHOLD
         return FieldResult(
             field="Net Contents",
             expected=expected,
             detected="Not detected",
-            status=Status.FAIL,
-            explanation="No supported net contents statement was detected.",
+            status=Status.NEEDS_REVIEW if inconclusive else Status.FAIL,
+            explanation=(
+                "OCR confidence was too low to establish net contents; review it manually."
+                if inconclusive
+                else "No supported net contents statement was detected."
+            ),
         )
     matches = any(
         abs(wanted.milliliters - found.milliliters) <= 1
         for wanted in expected_values
         for found in detected_values
     )
+    inconclusive = not matches and ocr_confidence < OCR_INCONCLUSIVE_THRESHOLD
     return FieldResult(
         field="Net Contents",
         expected=expected,
         detected=detected,
-        status=Status.PASS if matches else Status.FAIL,
+        status=(Status.PASS if matches else Status.NEEDS_REVIEW if inconclusive else Status.FAIL),
         explanation=(
             "Quantity matches after converting equivalent units."
             if matches
-            else "Detected quantity does not match the application."
+            else (
+                "OCR confidence was low and the detected quantity is inconclusive; review it manually."
+                if inconclusive
+                else "Detected quantity does not match the application."
+            )
         ),
     )
 
@@ -224,16 +260,17 @@ def verify_application(
     ocr: OcrResult,
 ) -> tuple[Status, list[FieldResult]]:
     fields = [
-        _fuzzy_result("Brand Name", application.brand_name, extracted.brand_name, 82, 62),
-        _fuzzy_result("Class / Type", application.class_type, extracted.class_type, 78, 58),
-        _alcohol_result(application.alcohol_content, extracted.alcohol_content),
-        _net_contents_result(application.net_contents, extracted.net_contents),
+        _fuzzy_result("Brand Name", application.brand_name, extracted.brand_name, 82, 62, ocr.average_confidence),
+        _fuzzy_result("Class / Type", application.class_type, extracted.class_type, 78, 58, ocr.average_confidence),
+        _alcohol_result(application.alcohol_content, extracted.alcohol_content, ocr.average_confidence),
+        _net_contents_result(application.net_contents, extracted.net_contents, ocr.average_confidence),
         _fuzzy_result(
             "Bottler / Producer",
             application.bottler_name_address,
             extracted.bottler_name_address,
             68,
             48,
+            ocr.average_confidence,
         ),
     ]
     if application.imported:
@@ -244,6 +281,7 @@ def verify_application(
                 extracted.country_of_origin,
                 82,
                 62,
+                ocr.average_confidence,
             )
         )
     else:
@@ -265,6 +303,7 @@ def verify_application(
                     getattr(extracted, attribute),
                     78,
                     58,
+                    ocr.average_confidence,
                 )
             )
     warning_required = government_warning_required(application.alcohol_content, ocr.text)

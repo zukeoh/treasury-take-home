@@ -144,6 +144,55 @@ def test_skewed_fragment_order_uses_complete_expected_tokens() -> None:
     assert "bayview" in producer.detected.casefold()
 
 
+def test_separated_quantity_tokens_are_reconstructed_from_ocr_evidence() -> None:
+    application = ApplicationData(
+        brand_name="Copper Fox",
+        class_type="American Single Malt Whiskey",
+        alcohol_content="46% Alc./Vol. (92 Proof)",
+        net_contents="750 mL",
+        bottler_name_address="Copper Fox Works, Santa Fe, NM",
+    )
+    lines = [
+        "COPPER FOX",
+        "American Single Malt Whiskey",
+        "46% Alc./Vol.",
+        "92",
+        "mL",
+        "Proof",
+        "750",
+        "Copper Fox Works, Santa Fe, NM",
+        GOVERNMENT_WARNING,
+    ]
+    ocr = OcrResult(
+        fragments=[OcrFragment(text=line, confidence=0.95) for line in lines],
+        text="\n".join(lines),
+        average_confidence=0.95,
+    )
+
+    extracted = extract_fields(ocr, application)
+    status, fields = verify_application(application, extracted, ocr)
+
+    assert extracted.alcohol_content == "46% ABV, 92 proof"
+    assert extracted.net_contents == "750 mL"
+    assert status == Status.PASS
+    assert next(field for field in fields if field.field == "Net Contents").status == Status.PASS
+
+
+def test_low_confidence_field_misses_route_to_review_not_material_mismatch() -> None:
+    application = _application()
+    ocr = OcrResult(
+        fragments=[OcrFragment(text="uncertain shapes", confidence=0.2)],
+        text="uncertain shapes",
+        average_confidence=0.2,
+    )
+
+    _, fields = verify_application(application, extract_fields(ocr, application), ocr)
+
+    for field_name in ("Brand Name", "Alcohol Content", "Net Contents", "Bottler / Producer"):
+        field = next(item for item in fields if item.field == field_name)
+        assert field.status == Status.NEEDS_REVIEW
+
+
 def test_zero_abv_product_does_not_fail_for_missing_warning() -> None:
     application = ApplicationData(
         brand_name="Clear Day",

@@ -74,23 +74,26 @@ class EasyOcrProvider:
                 self._initialization_error = str(exc)
                 raise OcrUnavailableError("The EasyOCR engine could not be initialized.") from exc
 
-    def read(self, image: np.ndarray) -> OcrResult:
-        if self._reader is None:
-            if self._initialization_error:
-                raise OcrUnavailableError("The EasyOCR engine is unavailable.")
-            self.initialize()
-        if self._reader is None:
-            raise OcrUnavailableError("EasyOCR is disabled in this environment.")
+    def _read_once(self, image: np.ndarray) -> OcrResult:
+        """Run the label-tuned EasyOCR configuration once."""
 
-        started = time.perf_counter()
-        raw_results = self._reader.readtext(
-            image,
-            detail=1,
-            paragraph=False,
-            decoder="greedy",
-            batch_size=1,
-            workers=0,
-        )
+        options: dict[str, Any] = {
+            "detail": 1,
+            "paragraph": False,
+            "decoder": "greedy",
+            "batch_size": 1,
+            "workers": 0,
+            # Lower detection thresholds and modest magnification preserve the
+            # small punctuation and warning text that the strict validator needs.
+            "text_threshold": 0.55,
+            "low_text": 0.3,
+            "link_threshold": 0.3,
+            "mag_ratio": 1.25,
+            "contrast_ths": 0.08,
+            "adjust_contrast": 0.7,
+            "add_margin": 0.08,
+        }
+        raw_results = self._reader.readtext(image, **options)
         blocks: list[OcrBlock] = []
         for item in raw_results:
             if len(item) < 3:
@@ -112,8 +115,49 @@ class EasyOcrProvider:
             text="\n".join(block.text for block in blocks),
             average_confidence=average,
             engine=self.name,
-            elapsed_ms=round((time.perf_counter() - started) * 1000),
         )
+
+    def read(self, image: np.ndarray) -> OcrResult:
+        if self._reader is None:
+            if self._initialization_error:
+                raise OcrUnavailableError("The EasyOCR engine is unavailable.")
+            self.initialize()
+        if self._reader is None:
+            raise OcrUnavailableError("EasyOCR is disabled in this environment.")
+
+        started = time.perf_counter()
+        first = self._read_once(image)
+        result = first
+        if (
+            config.EASYOCR_ROTATION_RETRY
+            and first.blocks
+            and first.average_confidence < config.EASYOCR_ROTATION_RETRY_THRESHOLD
+        ):
+            logger.info(
+                "EasyOCR low-confidence rotation retry | confidence=%.2f | threshold=%.2f",
+                first.average_confidence,
+                config.EASYOCR_ROTATION_RETRY_THRESHOLD,
+            )
+            # Retry the whole label at 180 degrees instead of asking EasyOCR to
+            # test four orientations for every detected box. The latter is much
+            # slower and can cause large CPU/memory spikes on a batch.
+            rotated_image = np.ascontiguousarray(np.rot90(image, 2))
+            try:
+                rotated = self._read_once(rotated_image)
+            except Exception:
+                logger.exception(
+                    "EasyOCR rotation retry failed; retaining the initial OCR result."
+                )
+                rotated = None
+            finally:
+                del rotated_image
+            if rotated is not None:
+                first_score = first.average_confidence * max(1, len(first.blocks)) ** 0.5
+                rotated_score = rotated.average_confidence * max(1, len(rotated.blocks)) ** 0.5
+                result = rotated if rotated_score > first_score else first
+            result.used_rotation_retry = True
+        result.elapsed_ms = round((time.perf_counter() - started) * 1000)
+        return result
 
 
 def parse_tesseract_data(
@@ -426,12 +470,14 @@ class OcrService:
                     trace.stage(6, "OCR complete", image_context)
                     trace.info(
                         "OCR complete | Engine: %s | Detected text blocks: %d | "
-                        "Average confidence: %.2f | OCR elapsed: %d ms | Enhanced pass: %s | %s",
+                        "Average confidence: %.2f | OCR elapsed: %d ms | Enhanced pass: %s | "
+                        "Rotation retry: %s | %s",
                         result.engine,
                         len(result.blocks),
                         result.average_confidence,
                         result.elapsed_ms,
                         str(result.used_enhanced_pass).lower(),
+                        str(result.used_rotation_retry).lower(),
                         image_context,
                     )
                 return result
