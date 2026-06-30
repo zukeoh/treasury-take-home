@@ -10,6 +10,27 @@ The original take-home prompt is preserved in [`instructions/README.md`](instruc
 
 **Live app:** [https://treasury-take-home-4wq7.onrender.com/](https://treasury-take-home-4wq7.onrender.com/)
 
+No account, API key, or environment setup is required. If the service has been idle, the first page load may take longer while Render starts the container.
+
+### How to use the live app
+
+1. **Open the live app.** Use the Render link above and wait for **Start A Label Review** to appear.
+2. **Add label artwork.** Drag JPEG or PNG files onto **Drop Label Images Here**, or choose **Browse Files**. Multiple files can be selected together or added in several selections. Each image must have a unique filename.
+3. **Confirm the selection.** Review the thumbnails, filenames, and total upload size. Remove an incorrect image with its remove button before continuing.
+4. **Choose how to enter application data:**
+   - **Enter Manually:** use this for one or a few labels. For every filename, select the alcohol label type and enter the expected brand name, class/type, alcohol content, net contents, and bottler/producer name and address. Enter any applicable beverage-specific fields. For an imported product, select **Imported product** and enter the country of origin.
+   - **Upload Batch CSV:** use this for larger batches. Select a UTF-8 CSV containing one row per image. Each `file_name` must match its uploaded image filename; matching is case-insensitive but otherwise exact. The required and optional columns are documented in [CSV Batch Format](#csv-batch-format), and the live app provides a [downloadable template](https://treasury-take-home-4wq7.onrender.com/sample.csv).
+5. **Start the review.** Choose **Verify Labels** once. Keep the tab open while OCR and validation run; larger Tesseract batches on Render may take several minutes.
+6. **Read the summary.** Use the Total, PASS, FAIL, and NEEDS REVIEW buttons to filter the result cards:
+   - **PASS:** all required automated checks passed against the entered application data.
+   - **FAIL:** at least one required field has a material mismatch or was not detected.
+   - **NEEDS REVIEW:** OCR confidence or a validation rule was inconclusive.
+7. **Inspect the evidence.** Expand each card to compare expected and detected values, rationale, requirement basis, and TTB source. Open the larger image preview or **View Extracted OCR Text** when a finding needs investigation.
+8. **Record a human decision when needed.** Under **Final Result**, a reviewer can select PASS, NEEDS REVIEW, or FAIL. This changes the final image-level result but preserves all field findings and the original automated result.
+9. **Export or start over.** Choose **Export Results** to download the CSV, or **Start Another Review** to return to the upload page. Results and overrides are not stored server-side, so export before closing or reloading the page.
+
+For the repository’s complete evaluation batch, see [Test the Render demo with all 50 labels](#test-the-render-demo-with-all-50-labels).
+
 ## Interface
 
 Start a review by adding JPEG or PNG label artwork and entering application data manually or by CSV.
